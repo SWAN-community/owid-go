@@ -191,11 +191,8 @@ func (a *AWS) awsCreateCreatorsTable() (*dynamodb.CreateTableOutput, error) {
 				KeyType:       aws.String("RANGE"),
 			},
 		},
-		ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
-			ReadCapacityUnits:  aws.Int64(5),
-			WriteCapacityUnits: aws.Int64(5),
-		},
-		TableName: aws.String(creatorsTableName),
+		BillingMode: aws.String("PAY_PER_REQUEST"),
+		TableName:   aws.String(creatorsTableName),
 	}
 
 	o, err := a.svc.CreateTable(input)
