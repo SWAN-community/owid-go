@@ -27,6 +27,7 @@ import (
 type Configuration struct {
 	AzureAccessKey  string `json:"azureAccessKey"`
 	AzureAccount    string `json:"azureAccount"`
+	UseDynamoDB     bool   `json:"useDynamoDB"`
 	AWSRegion       string `json:"awsRegion"`
 	BackgroundColor string `json:"backgroundColor"`
 	MessageColor    string `json:"messageColor"`
@@ -53,8 +54,6 @@ func (c *Configuration) Validate() error {
 	if err == nil {
 		if c.Debug != false {
 			fmt.Printf("Debug: %t\n", c.Debug)
-		} else {
-			err = fmt.Errorf("Debug missing in config")
 		}
 	}
 	if err == nil {
@@ -69,6 +68,15 @@ func (c *Configuration) Validate() error {
 			fmt.Printf("MessageColor: %s\n", c.MessageColor)
 		} else {
 			err = fmt.Errorf("MessageColor missing in config")
+		}
+	}
+
+	if err == nil {
+		if c.AzureAccessKey == "" && c.AzureAccount == "" &&
+			c.UseDynamoDB == false && c.AWSRegion == "" {
+			err = fmt.Errorf(
+				"Either Azure table storage or AWS Dynamo DB parameters must " +
+					"be set.")
 		}
 	}
 	return err
