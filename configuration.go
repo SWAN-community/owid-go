@@ -54,8 +54,6 @@ func (c *Configuration) Validate() error {
 	if err == nil {
 		if c.Debug != false {
 			fmt.Printf("Debug: %t\n", c.Debug)
-		} else {
-			err = fmt.Errorf("Debug missing in config")
 		}
 	}
 	if err == nil {
