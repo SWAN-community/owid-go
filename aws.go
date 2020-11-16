@@ -197,6 +197,7 @@ func (a *AWS) awsCreateCreatorsTable() (*dynamodb.CreateTableOutput, error) {
 		},
 		TableName: aws.String(creatorsTableName),
 	}
+
 	o, err := a.svc.CreateTable(input)
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
@@ -210,6 +211,20 @@ func (a *AWS) awsCreateCreatorsTable() (*dynamodb.CreateTableOutput, error) {
 			return o, err
 		}
 	}
+
+	for {
+		input := &dynamodb.DescribeTableInput{
+			TableName: aws.String(creatorsTableName),
+		}
+		result, err := a.svc.DescribeTable(input)
+		if err != nil {
+			return nil, err
+		}
+		if *result.Table.TableStatus == "ACTIVE" {
+			break
+		}
+	}
+
 	return o, nil
 }
 
