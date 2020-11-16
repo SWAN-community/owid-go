@@ -19,6 +19,7 @@ package owid
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 )
 
@@ -50,33 +51,27 @@ func NewConfig(file string) Configuration {
 // Validate confirms that the configuration is usable.
 func (c *Configuration) Validate() error {
 	var err error
-	fmt.Printf("Debug Mode: %t\n", c.Debug)
-	if err == nil {
-		if c.Debug != false {
-			fmt.Printf("Debug: %t\n", c.Debug)
-		}
-	}
+	log.Printf("OWID:Debug Mode: %t\n", c.Debug)
 	if err == nil {
 		if c.BackgroundColor != "" {
-			fmt.Printf("BackgroundColor: %s\n", c.BackgroundColor)
+			log.Printf("OWID:BackgroundColor: %s\n", c.BackgroundColor)
 		} else {
-			err = fmt.Errorf("BackgroundColor missing in config")
+			err = fmt.Errorf("OWID BackgroundColor missing in config")
 		}
 	}
 	if err == nil {
 		if c.MessageColor != "" {
-			fmt.Printf("MessageColor: %s\n", c.MessageColor)
+			log.Printf("OWID:MessageColor: %s\n", c.MessageColor)
 		} else {
-			err = fmt.Errorf("MessageColor missing in config")
+			err = fmt.Errorf("OWID MessageColor missing in config")
 		}
 	}
-
 	if err == nil {
 		if c.AzureAccessKey == "" && c.AzureAccount == "" &&
 			c.UseDynamoDB == false && c.AWSRegion == "" {
 			err = fmt.Errorf(
-				"Either Azure table storage or AWS Dynamo DB parameters must " +
-					"be set.")
+				"OWID Either Azure table storage or AWS Dynamo DB " +
+					"parameters must be set.")
 		}
 	}
 	return err
