@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
@@ -70,8 +71,13 @@ func NewAWS(region string) (*AWS, error) {
 	}
 	a.svc = dynamodb.New(sess)
 
+	_, err := a.awsCreateCreatorsTable()
+	if err != nil {
+		return nil, err
+	}
+
 	a.mutex = &sync.Mutex{}
-	err := a.refresh()
+	err = a.refresh()
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +197,20 @@ func (a *AWS) awsCreateCreatorsTable() (*dynamodb.CreateTableOutput, error) {
 		},
 		TableName: aws.String(creatorsTableName),
 	}
-	return a.svc.CreateTable(input)
+	o, err := a.svc.CreateTable(input)
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok {
+			switch aerr.Code() {
+			case dynamodb.ErrCodeTableAlreadyExistsException:
+				break
+			default:
+				return o, err
+			}
+		} else {
+			return o, err
+		}
+	}
+	return o, nil
 }
 
 func (a *AWS) refresh() error {
