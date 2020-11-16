@@ -201,6 +201,8 @@ func (a *AWS) awsCreateCreatorsTable() (*dynamodb.CreateTableOutput, error) {
 			switch aerr.Code() {
 			case dynamodb.ErrCodeTableAlreadyExistsException:
 				break
+			case dynamodb.ErrCodeResourceInUseException:
+				break
 			default:
 				return o, err
 			}
