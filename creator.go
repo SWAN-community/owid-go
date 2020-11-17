@@ -29,7 +29,7 @@ type Creator struct {
 // Domain associated with the creator.
 func (c *Creator) Domain() string { return c.domain }
 
-// Create makes a new OWID for the payload provided.
+// CreateOWID makes a new OWID for the payload provided.
 func (c *Creator) CreateOWID(payload string) (string, error) {
 
 	date := time.Now().UTC()
