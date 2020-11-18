@@ -29,8 +29,8 @@ type Creator struct {
 // Domain associated with the creator.
 func (c *Creator) Domain() string { return c.domain }
 
-// Create makes a new OWID for the payload provided.
-func (c *Creator) CreateOWID(payload string) (string, error) {
+// CreateOWID makes a new OWID for the payload provided.
+func (c *Creator) CreateOWID(payload []byte) (string, error) {
 
 	date := time.Now().UTC()
 
@@ -41,13 +41,13 @@ func (c *Creator) CreateOWID(payload string) (string, error) {
 	}
 
 	// Generate signature of OWID
-	signature, err := cry.Sign(date, []byte(payload))
+	signature, err := cry.Sign(date, payload)
 	if err != nil {
 		return "", err
 	}
 
 	// Create the OWID
-	o, err := NewOwid(c.domain, signature, date, []byte(payload))
+	o, err := NewOwid(c.domain, signature, date, payload)
 	if err != nil {
 		return "", err
 	}

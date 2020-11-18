@@ -16,37 +16,11 @@
 
 package owid
 
-import (
-	"net/http"
-)
+// Access interface for validating entitlement to access the network.
+type Access interface {
 
-// HandlerDecode Decodes and returns the OWID as a JSON.
-func HandlerDecode(s *Services) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-
-		err := r.ParseForm()
-		if err != nil {
-			returnAPIError(s, w, err, http.StatusUnprocessableEntity)
-			return
-		}
-
-		owid := r.FormValue("owid")
-
-		o, err := DecodeFromBase64(owid)
-		if err != nil {
-			returnAPIError(s, w, err, http.StatusInternalServerError)
-			return
-		}
-
-		json, err := o.Encode()
-		if err != nil {
-			returnAPIError(s, w, err, http.StatusInternalServerError)
-			return
-		}
-
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Write([]byte(json))
-	}
+	// GetAllowed returns true if the accessKey is allowed access to the SWIFT
+	// network, otherwise false. If false is returned then the error will
+	// provide the reason.
+	GetAllowed(accessKey string) (bool, error)
 }

@@ -17,6 +17,7 @@
 package owid
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 )
@@ -26,6 +27,12 @@ import (
 //  is returned.
 func HandlerCreate(s *Services) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Check caller can access
+		if s.getAccessAllowed(w, r) == false {
+			returnAPIError(s, w, errors.New("not authorized"), http.StatusUnauthorized)
+			return
+		}
+
 		u, err := createOWID(s, r)
 		if err != nil {
 			returnAPIError(s, w, err, http.StatusUnprocessableEntity)
@@ -51,5 +58,5 @@ func createOWID(s *Services, r *http.Request) (string, error) {
 				r.Host)
 	}
 
-	return c.CreateOWID("test")
+	return c.CreateOWID([]byte("test"))
 }

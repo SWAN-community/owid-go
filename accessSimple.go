@@ -16,37 +16,27 @@
 
 package owid
 
-import (
-	"net/http"
-)
+// AccessSimple is a implementation of swift.Access for testing where a list
+// of keys returns true, and all others return false.
+type AccessSimple struct {
+	validKeys map[string]bool // A list of the keys that are valid.
+}
 
-// HandlerDecode Decodes and returns the OWID as a JSON.
-func HandlerDecode(s *Services) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+// NewAccessSimple creates a new instance of the AccessSimple structure
+func NewAccessSimple(validKeys []string) *AccessSimple {
+	var a AccessSimple
 
-		err := r.ParseForm()
-		if err != nil {
-			returnAPIError(s, w, err, http.StatusUnprocessableEntity)
-			return
-		}
-
-		owid := r.FormValue("owid")
-
-		o, err := DecodeFromBase64(owid)
-		if err != nil {
-			returnAPIError(s, w, err, http.StatusInternalServerError)
-			return
-		}
-
-		json, err := o.Encode()
-		if err != nil {
-			returnAPIError(s, w, err, http.StatusInternalServerError)
-			return
-		}
-
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Write([]byte(json))
+	m := make(map[string]bool)
+	for _, k := range validKeys {
+		m[k] = true
 	}
+	a.validKeys = m
+
+	return &a
+}
+
+// GetAllowed validates access key can access swift handlers
+func (a *AccessSimple) GetAllowed(accessKey string) (bool, error) {
+	return a.validKeys[accessKey], nil
+
 }
