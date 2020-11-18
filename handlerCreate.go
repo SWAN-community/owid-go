@@ -58,5 +58,5 @@ func createOWID(s *Services, r *http.Request) (string, error) {
 				r.Host)
 	}
 
-	return c.CreateOWID("test")
+	return c.CreateOWID([]byte("test"))
 }
