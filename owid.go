@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -36,13 +37,22 @@ type OWID struct {
 	Payload   []byte    `json:"payload"`   // Array of bytes that form the indentifier
 }
 
-// PayloadAsString returns the payload as a string
+// PayloadAsString converts the payload to a string
 func (o *OWID) PayloadAsString() string {
 	return string(o.Payload)
 }
 
+// PayloadAsPrintable returns a string representation of the payload
+func (o *OWID) PayloadAsPrintable() string {
+	return fmt.Sprintf("%x", o.Payload)
+}
+
 // NewOwid creates a new instance of the OWID structure
-func NewOwid(domain string, signature string, date time.Time, payload []byte) (*OWID, error) {
+func NewOwid(
+	domain string,
+	signature string,
+	date time.Time,
+	payload []byte) (*OWID, error) {
 	var o = OWID{
 		domain,
 		owidVersion,
