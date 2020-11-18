@@ -32,8 +32,8 @@ func (c *common) init() {
 	c.mutex = &sync.Mutex{}
 }
 
-// getNode takes a domain name and returns the associated node. If a node
-// does not exist then nil is returned.
+// GetCreator takes a domain name and returns the associated creator. If a
+// creator does not exist then nil is returned.
 func (c *common) getCreator(domain string) (*Creator, error) {
 	return c.creators[domain], nil
 }

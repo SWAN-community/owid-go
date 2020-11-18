@@ -45,6 +45,11 @@ func NewServices(
 // Config returns the configuration service.
 func (s *Services) Config() *Configuration { return &s.config }
 
+// GetCreator returns the store service
+func (s *Services) GetCreator(host string) (*Creator, error) {
+	return s.store.GetCreator(host)
+}
+
 // Returns true if the request is allowed to access the handler, otherwise false.
 // If false is returned then no further action is needed as the method will have
 // responded to the request already.
