@@ -25,7 +25,7 @@ import (
 type Services struct {
 	config Configuration // Configuration used by the server.
 	store  Store         // Instance of storage service for node data
-	access Access
+	access Access        // Instance of access service
 }
 
 // NewServices a set of services to use with Shared Web State. These provide

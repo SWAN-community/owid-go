@@ -17,18 +17,12 @@
 package owid
 
 import (
-	"errors"
 	"net/http"
 )
 
 // HandlerDecode Decodes and returns the OWID as a JSON.
 func HandlerDecode(s *Services) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Check caller can access
-		if s.getAccessAllowed(w, r) == false {
-			returnAPIError(s, w, errors.New("not authorized"), http.StatusUnauthorized)
-			return
-		}
 
 		err := r.ParseForm()
 		if err != nil {
