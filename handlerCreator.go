@@ -18,6 +18,7 @@ package owid
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 )
 
@@ -35,6 +36,12 @@ type PublicCreator struct {
 // HandlerCreator Returns the public information associated with the creator.
 func HandlerCreator(s *Services) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Check caller can access
+		if s.getAccessAllowed(w, r) == false {
+			returnAPIError(s, w, errors.New("not authorized"), http.StatusUnauthorized)
+			return
+		}
+
 		c, err := s.store.GetCreator(r.Host)
 		if err != nil {
 			returnAPIError(s, w, err, http.StatusInternalServerError)

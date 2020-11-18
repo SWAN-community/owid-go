@@ -27,12 +27,13 @@ import (
 
 func getServices() (*Services, error) {
 	c := NewConfig("appsettings.Test.json")
-	a, err := newTestStore()
+	a := NewAccessSimple([]string{"key1", "key2"})
+	st, err := newTestStore()
 	//a, err := NewAzure(c.AzureAccount, c.AzureAccessKey)
 	if err != nil {
 		return nil, err
 	}
-	s := NewServices(c, a)
+	s := NewServices(c, st, a)
 
 	return s, nil
 }
@@ -53,6 +54,7 @@ func TestRegisterHandler(t *testing.T) {
 	req.Host = testDomain
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Add("Content-Length", strconv.Itoa(len(data.Encode())))
+	setCommon(req)
 
 	rr := httptest.NewRecorder()
 	handler := http.HandlerFunc(HandlerRegister(s))
@@ -84,6 +86,7 @@ func TestCreateHandler(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Host = testDomain
+	setCommon(req)
 
 	rr := httptest.NewRecorder()
 	handler := http.HandlerFunc(HandlerCreate(s))
@@ -115,6 +118,7 @@ func TestCreatorHandler(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Host = testDomain
+	setCommon(req)
 
 	rr := httptest.NewRecorder()
 	handler := http.HandlerFunc(HandlerCreator(s))
@@ -152,6 +156,7 @@ func TestDecodeHandler(t *testing.T) {
 	req.Host = testDomain
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Add("Content-Length", strconv.Itoa(len(data.Encode())))
+	setCommon(req)
 
 	rr := httptest.NewRecorder()
 	handler := http.HandlerFunc(HandlerDecode(s))
@@ -188,6 +193,7 @@ func TestDecodeAndVerifyHandler(t *testing.T) {
 	req.Host = testDomain
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Add("Content-Length", strconv.Itoa(len(data.Encode())))
+	setCommon(req)
 
 	rr := httptest.NewRecorder()
 	handler := http.HandlerFunc(HandlerDecodeAndVerify(s))
@@ -224,6 +230,7 @@ func TestVerifyHandler(t *testing.T) {
 	req.Host = testDomain
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Add("Content-Length", strconv.Itoa(len(data.Encode())))
+	setCommon(req)
 
 	rr := httptest.NewRecorder()
 	handler := http.HandlerFunc(HandlerVerify(s))
@@ -242,4 +249,13 @@ func TestVerifyHandler(t *testing.T) {
 		t.Errorf("handler returned unexpected body: got '%v' want '%v'",
 			rr.Body.String(), expected)
 	}
+}
+
+func setCommon(r *http.Request) {
+	q := r.URL.Query()
+
+	// set the access key
+	q.Set("accessKey", "key1")
+
+	r.URL.RawQuery = q.Encode()
 }
