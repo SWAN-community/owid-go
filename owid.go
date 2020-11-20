@@ -30,11 +30,11 @@ const (
 
 // OWID structure
 type OWID struct {
-	Domain    string    `json:"domain"`    // Domain associated with the creator
 	Version   byte      `json:"version"`   // The byte version of the OWID. Version 1 only.
+	Domain    string    `json:"domain"`    // Domain associated with the creator
 	Signature string    `json:"signature"` // Signature for the date AND payload bytes from the creator
 	Date      time.Time `json:"date"`      // The date and time to the nearest minute in UTC of the creation
-	Payload   []byte    `json:"payload"`   // Array of bytes that form the indentifier
+	Payload   []byte    `json:"payload"`   // Array of bytes that form the identifier
 }
 
 // PayloadAsString converts the payload to a string
@@ -54,8 +54,8 @@ func NewOwid(
 	date time.Time,
 	payload []byte) (*OWID, error) {
 	var o = OWID{
-		domain,
 		owidVersion,
+		domain,
 		signature,
 		date,
 		payload}
@@ -110,11 +110,11 @@ func DecodeFromBase64(owid string) (*OWID, error) {
 
 func (o *OWID) setFromBuffer(b *bytes.Buffer) error {
 	var err error
-	o.Domain, err = readString(b)
+	o.Version, err = readByte(b)
 	if err != nil {
 		return err
 	}
-	o.Version, err = readByte(b)
+	o.Domain, err = readString(b)
 	if err != nil {
 		return err
 	}
@@ -134,11 +134,11 @@ func (o *OWID) setFromBuffer(b *bytes.Buffer) error {
 }
 
 func (o *OWID) writeToBuffer(b *bytes.Buffer) error {
-	err := writeString(b, o.Domain)
+	err := writeByte(b, o.Version)
 	if err != nil {
 		return err
 	}
-	err = writeByte(b, o.Version)
+	err = writeString(b, o.Domain)
 	if err != nil {
 		return err
 	}
