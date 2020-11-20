@@ -72,16 +72,6 @@ func (o *OWID) Encode() (string, error) {
 	return string(b), nil
 }
 
-// Decode decodes a JSON sting into an OWID
-// func Decode(owid string) (*OWID, error) {
-// 	var o OWID
-// 	err := json.Unmarshal([]byte(owid), &o)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	return &o, nil
-// }
-
 // EncodeAsBase64 gets the Base64 representation of this OWID
 func (o *OWID) EncodeAsBase64() (string, error) {
 	var buf bytes.Buffer
