@@ -113,7 +113,7 @@ func (c *Crypto) Sign(date time.Time, payload []byte) (string, error) {
 		return "", err
 	}
 
-	return base64.StdEncoding.EncodeToString([]byte(signature)), nil
+	return base64.RawURLEncoding.EncodeToString([]byte(signature)), nil
 }
 
 // Verify extracts the signature from an OWID and verifies that is has
@@ -138,7 +138,7 @@ func (c *Crypto) Verify(id string) (bool, error) {
 	date := buf.Bytes()
 
 	hashed := sha256.Sum256(append(o.Payload, date...))
-	decoded, err := base64.StdEncoding.DecodeString(o.Signature)
+	decoded, err := base64.RawURLEncoding.DecodeString(o.Signature)
 	if err != nil {
 		return false, err
 	}
