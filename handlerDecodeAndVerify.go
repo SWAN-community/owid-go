@@ -23,7 +23,7 @@ import (
 
 type verifiedOWID struct {
 	*OWID
-	Name  string `json:"name"`  // Organisation name accosiated with the domain
+	Name  string `json:"name"`  // Organization name associated with the domain
 	Valid bool   `json:"valid"` // Valid
 }
 

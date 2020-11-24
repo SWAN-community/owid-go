@@ -46,15 +46,15 @@ var registerTemplate = newHTMLTemplate("register", `
         <tr>
             <td colspan="3">
                 {{ if not .ReadOnly }}
-                <p>Register creator '{{ .Domain }}' to a organisation.</p>
+                <p>Register creator '{{ .Domain }}' to a organization.</p>
                 {{ else }}
-                <p>Success. Creator '{{ .Domain }}' registered to organisation name '{{ .Name }}'.</p>
+                <p>Success. Creator '{{ .Domain }}' registered to organization name '{{ .Name }}'.</p>
                 {{ end }}
             </td>
         </tr>
         <tr>
             <td>
-                <p><label for="name">Organisation Name</label></p>
+                <p><label for="name">Organization Name</label></p>
             </td>
             <td>
                 <p><input type="text" maxlength="20" id="name" name="name" value="{{ .Name }}" {{ if .ReadOnly }}disabled{{ end }}></p>

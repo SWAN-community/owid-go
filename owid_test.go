@@ -65,33 +65,6 @@ func TestOwidEncode(t *testing.T) {
 	}
 }
 
-// func TestOwidDecode(t *testing.T) {
-// 	owidJSON := testJSON
-
-// 	o, err := Decode(owidJSON)
-// 	if err != nil {
-// 		t.Fatal(err)
-// 	}
-
-// 	expectedDomain := testDomain
-// 	if o.Domain != expectedDomain {
-// 		t.Errorf("decode returned unexpected value for domain, expected '%v' "+
-// 			"got '%v'", expectedDomain, o.Domain)
-// 	}
-
-// 	expectedDate := testDate
-// 	if o.Date != expectedDate {
-// 		t.Errorf("decode returned unexpected value for date, expected '%v' "+
-// 			"got '%v'", expectedDate, o.Date)
-// 	}
-
-// 	expectedPayload := testPayload
-// 	if string(o.Payload) != expectedPayload {
-// 		t.Errorf("decode returned unexpected value for payload, expected '%v' "+
-// 			"got '%v'", expectedPayload, string(o.Payload))
-// 	}
-// }
-
 func TestOwidEncodeAsBase64(t *testing.T) {
 	o, _, err := newOwid()
 	if err != nil {

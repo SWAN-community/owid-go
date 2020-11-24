@@ -273,7 +273,7 @@ func (a *AWS) fetchCreators() (map[string]*Creator, error) {
 
 		err = dynamodbattribute.UnmarshalMap(i, &item)
 		if err != nil {
-			fmt.Println("Got error unmarshalling:")
+			fmt.Println("Got error un-marshalling:")
 			fmt.Println(err.Error())
 			return nil, err
 		}
