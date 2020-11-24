@@ -80,13 +80,13 @@ func (o *OWID) EncodeAsBase64() (string, error) {
 		return "", err
 	}
 
-	return base64.StdEncoding.EncodeToString(buf.Bytes()), nil
+	return base64.RawURLEncoding.EncodeToString(buf.Bytes()), nil
 }
 
 // DecodeFromBase64 decodes a Base 64 string into an OWID
 func DecodeFromBase64(owid string) (*OWID, error) {
 	var o OWID
-	b, err := base64.StdEncoding.DecodeString(owid)
+	b, err := base64.RawURLEncoding.DecodeString(owid)
 	if err != nil {
 		return nil, err
 	}

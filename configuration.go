@@ -26,10 +26,6 @@ import (
 // Configuration details from appsettings.json for access to the AWS or Azure
 // storage.
 type Configuration struct {
-	AzureAccessKey  string `json:"azureAccessKey"`
-	AzureAccount    string `json:"azureAccount"`
-	UseDynamoDB     bool   `json:"useDynamoDB"`
-	AWSRegion       string `json:"awsRegion"`
 	BackgroundColor string `json:"backgroundColor"`
 	MessageColor    string `json:"messageColor"`
 	Debug           bool   `json:"debug"`
@@ -64,14 +60,6 @@ func (c *Configuration) Validate() error {
 			log.Printf("OWID:MessageColor: %s\n", c.MessageColor)
 		} else {
 			err = fmt.Errorf("OWID MessageColor missing in config")
-		}
-	}
-	if err == nil {
-		if c.AzureAccessKey == "" && c.AzureAccount == "" &&
-			c.UseDynamoDB == false && c.AWSRegion == "" {
-			err = fmt.Errorf(
-				"OWID Either Azure table storage or AWS Dynamo DB " +
-					"parameters must be set.")
 		}
 	}
 	return err
