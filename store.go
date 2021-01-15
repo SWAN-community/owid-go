@@ -16,6 +16,12 @@
 
 package owid
 
+import (
+	"errors"
+	"log"
+	"os"
+)
+
 // Interface used for the storing of keys for signing, domains and organization
 // information. Implemented in Azure and AWS.
 
@@ -38,4 +44,40 @@ type Store interface {
 
 	// setCreator inserts a new creator.
 	setCreator(c *Creator) error
+}
+
+// NewStore returns a work implementation of the Store interface for the
+// configuration supplied.
+func NewStore(owidConfig Configuration) Store {
+	var owidStore Store
+	var err error
+
+	azureAccountName, azureAccountKey :=
+		os.Getenv("AZURE_STORAGE_ACCOUNT"),
+		os.Getenv("AZURE_STORAGE_ACCESS_KEY")
+	if len(azureAccountName) > 0 || len(azureAccountKey) > 0 {
+		if len(azureAccountName) == 0 || len(azureAccountKey) == 0 {
+			panic(errors.New("Either the AZURE_STORAGE_ACCOUNT or " +
+				"AZURE_STORAGE_ACCESS_KEY environment variable is not set"))
+		}
+		log.Printf("OWID: Using Azure Table Storage")
+		owidStore, err = NewAzure(
+			azureAccountName,
+			azureAccountKey)
+		if err != nil {
+			panic(err)
+		}
+	} else {
+		log.Printf("OWID: Using AWS DynamoDB")
+		owidStore, err = NewAWS()
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	if owidStore == nil {
+		panic(errors.New("owid store not configured"))
+	}
+
+	return owidStore
 }
