@@ -53,7 +53,7 @@ func TestOwidEncode(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	owidJSON, err := o.Encode()
+	owidJSON, err := o.EncodeAsJSON()
 	if err != nil {
 		t.Fatal(err)
 	}

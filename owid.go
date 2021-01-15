@@ -32,7 +32,7 @@ const (
 type OWID struct {
 	Version   byte      `json:"version"`   // The byte version of the OWID. Version 1 only.
 	Domain    string    `json:"domain"`    // Domain associated with the creator
-	Signature string    `json:"signature"` // Signature for the date AND payload bytes from the creator
+	Signature []byte    `json:"signature"` // Signature for the date AND payload bytes from the creator
 	Date      time.Time `json:"date"`      // The date and time to the nearest minute in UTC of the creation
 	Payload   []byte    `json:"payload"`   // Array of bytes that form the identifier
 }
@@ -50,7 +50,7 @@ func (o *OWID) PayloadAsPrintable() string {
 // NewOwid creates a new instance of the OWID structure
 func NewOwid(
 	domain string,
-	signature string,
+	signature []byte,
 	date time.Time,
 	payload []byte) (*OWID, error) {
 	var o = OWID{
@@ -63,13 +63,23 @@ func NewOwid(
 	return &o, nil
 }
 
-// Encode encodes this OWID as a JSON string.
-func (o *OWID) Encode() (string, error) {
+// EncodeAsJSON encodes this OWID as a JSON string.
+func (o *OWID) EncodeAsJSON() (string, error) {
 	b, err := json.Marshal(o)
 	if err != nil {
 		return "", err
 	}
 	return string(b), nil
+}
+
+// AsByteArray returns the OWID as a byte array
+func (o *OWID) AsByteArray() ([]byte, error) {
+	var buf bytes.Buffer
+	err := o.writeToBuffer(&buf)
+	if err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // EncodeAsBase64 gets the Base64 representation of this OWID
@@ -79,14 +89,13 @@ func (o *OWID) EncodeAsBase64() (string, error) {
 	if err != nil {
 		return "", err
 	}
-
-	return base64.RawURLEncoding.EncodeToString(buf.Bytes()), nil
+	return base64.StdEncoding.EncodeToString(buf.Bytes()), nil
 }
 
 // DecodeFromBase64 decodes a Base 64 string into an OWID
 func DecodeFromBase64(owid string) (*OWID, error) {
 	var o OWID
-	b, err := base64.RawURLEncoding.DecodeString(owid)
+	b, err := base64.StdEncoding.DecodeString(owid)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +117,7 @@ func (o *OWID) setFromBuffer(b *bytes.Buffer) error {
 	if err != nil {
 		return err
 	}
-	o.Signature, err = readString(b)
+	o.Signature, err = readByteArray(b)
 	if err != nil {
 		return err
 	}
@@ -132,7 +141,7 @@ func (o *OWID) writeToBuffer(b *bytes.Buffer) error {
 	if err != nil {
 		return err
 	}
-	err = writeString(b, o.Signature)
+	err = writeByteArray(b, o.Signature)
 	if err != nil {
 		return err
 	}

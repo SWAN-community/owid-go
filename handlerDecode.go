@@ -38,7 +38,7 @@ func HandlerDecode(s *Services) http.HandlerFunc {
 			return
 		}
 
-		json, err := o.Encode()
+		json, err := o.EncodeAsJSON()
 		if err != nil {
 			returnAPIError(s, w, err, http.StatusInternalServerError)
 			return
