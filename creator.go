@@ -16,7 +16,9 @@
 
 package owid
 
-import "time"
+import (
+	"time"
+)
 
 // Creator of Open Web Ids and immutable data.
 type Creator struct {
@@ -26,8 +28,38 @@ type Creator struct {
 	name       string // The name of the entity associated with the domain
 }
 
+// SubjectPublicKeyInfo returns the public key in SPKI form.
+func (c *Creator) SubjectPublicKeyInfo() (string, error) {
+	cry, err := NewCryptoVerifyOnly(c.publicKey)
+	if err != nil {
+		return "", err
+	}
+	return cry.getSubjectPublicKeyInfo()
+}
+
 // Domain associated with the creator.
 func (c *Creator) Domain() string { return c.domain }
+
+// Sign the payload with the private key of the OWID creator.
+func (c *Creator) Sign(owid *OWID) ([]byte, error) {
+
+	date := time.Now().UTC()
+
+	// Get the OWID as a byte array so that it can be signed
+	b, err := owid.AsByteArray()
+	if err != nil {
+		return nil, err
+	}
+
+	// Get signing key
+	cry, err := NewCryptoSignOnly(c.privateKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// Generate signature of OWID
+	return cry.Sign(date, b)
+}
 
 // CreateOWID makes a new OWID for the payload provided.
 func (c *Creator) CreateOWID(payload []byte) (string, error) {

@@ -26,9 +26,9 @@ import (
 // signature. For example; a bid request is received with IDs and those IDs need
 // to be verified before the bid is processed.
 type PublicCreator struct {
-	Domain    string `json:"domain"` // The domain that the name and key relate to
-	Name      string `json:"name"`
-	PublicKey string `json:"public-key"`
+	Domain        string `json:"domain"` // The domain that the name and key relate to
+	Name          string `json:"name"`
+	PublicKeySPKI string `json:"publicKeySPKI"` // The public key in SPKI form
 	// SSL       string // All the details from the SSL cert. Future.
 }
 
@@ -41,8 +41,16 @@ func HandlerCreator(s *Services) http.HandlerFunc {
 			return
 		}
 
-		pc := publicCreator(c)
+		pc, err := publicCreator(c)
+		if err != nil {
+			returnAPIError(s, w, err, http.StatusInternalServerError)
+			return
+		}
 		u, err := json.Marshal(pc)
+		if err != nil {
+			returnAPIError(s, w, err, http.StatusInternalServerError)
+			return
+		}
 
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -51,10 +59,14 @@ func HandlerCreator(s *Services) http.HandlerFunc {
 	}
 }
 
-func publicCreator(cre *Creator) *PublicCreator {
-	c := PublicCreator{
-		cre.domain,
-		cre.name,
-		cre.publicKey}
-	return &c
+func publicCreator(c *Creator) (*PublicCreator, error) {
+	var err error
+	var p PublicCreator
+	p.PublicKeySPKI, err = c.SubjectPublicKeyInfo()
+	if err != nil {
+		return nil, err
+	}
+	p.Domain = c.domain
+	p.Name = c.name
+	return &p, nil
 }

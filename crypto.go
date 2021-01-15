@@ -23,7 +23,6 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
-	"encoding/base64"
 	"encoding/pem"
 	"errors"
 	"time"
@@ -39,6 +38,24 @@ import (
 type Crypto struct {
 	publicKey  *rsa.PublicKey
 	privateKey *rsa.PrivateKey
+}
+
+// getSubjectPublicKeyInfo returns the public key in SPKI format for use with
+// JavaScript SubtleCrypto.importKey() method or other methods that require
+// SPKI format public keys.
+func (c *Crypto) getSubjectPublicKeyInfo() (string, error) {
+	spki, err := x509.MarshalPKIXPublicKey(c.publicKey)
+	if err != nil {
+		return "", err
+	}
+	return string(
+		pem.EncodeToMemory(
+			&pem.Block{
+				Type:  "RSA PUBLIC KEY",
+				Bytes: spki,
+			},
+		),
+	), nil
 }
 
 // NewCrypto creates an new instance of the Crypto structure and generates
@@ -87,18 +104,18 @@ func NewCryptoVerifyOnly(public string) (*Crypto, error) {
 	return &c, nil
 }
 
-// Sign generates a signature for the date and payload fields of a
-// OWID strcture
-func (c *Crypto) Sign(date time.Time, payload []byte) (string, error) {
+// Sign generates a signature for the date and payload fields of an OWID
+// structure.
+func (c *Crypto) Sign(date time.Time, payload []byte) ([]byte, error) {
 	if c.privateKey == nil && c.publicKey != nil {
-		return "", errors.New("This instance of Cypto cannot be used to " +
+		return nil, errors.New("This instance of Cypto cannot be used to " +
 			"generate a signature.")
 	}
 
 	var buf bytes.Buffer
 	err := writeDate(&buf, date)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	dateBytes := buf.Bytes()
 
@@ -110,10 +127,10 @@ func (c *Crypto) Sign(date time.Time, payload []byte) (string, error) {
 		crypto.SHA256,
 		hashed[:])
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	return base64.RawURLEncoding.EncodeToString([]byte(signature)), nil
+	return signature, nil
 }
 
 // Verify extracts the signature from an OWID and verifies that is has
@@ -138,16 +155,11 @@ func (c *Crypto) Verify(id string) (bool, error) {
 	date := buf.Bytes()
 
 	hashed := sha256.Sum256(append(o.Payload, date...))
-	decoded, err := base64.RawURLEncoding.DecodeString(o.Signature)
-	if err != nil {
-		return false, err
-	}
-
 	err = rsa.VerifyPKCS1v15(
 		c.publicKey,
 		crypto.SHA256,
 		hashed[:],
-		decoded)
+		o.Signature)
 	if err != nil {
 		return false, err
 	}
