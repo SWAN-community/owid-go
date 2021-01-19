@@ -23,11 +23,9 @@ import (
 // AddHandlers to the http default mux for shared web state.
 func AddHandlers(s *Services) {
 	http.HandleFunc("/owid/register", HandlerRegister(s))
-	http.HandleFunc("/owid/api/v1/create", HandlerCreate(s))
+	http.HandleFunc("/owid/api/v1/public-key", HandlerPublicKey(s))
+	http.HandleFunc("/owid/api/v1/creator", HandlerCreator(s))
 	http.HandleFunc("/owid/api/v1/verify", HandlerVerify(s))
-	http.HandleFunc("/owid/api/v1/decode", HandlerDecode(s))
-	http.HandleFunc("/owid/api/v1/decode-and-verify", HandlerDecodeAndVerify(s))
-	http.HandleFunc("/owid.json", HandlerCreator(s))
 }
 
 func returnAPIError(

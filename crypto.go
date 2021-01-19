@@ -17,7 +17,6 @@
 package owid
 
 import (
-	"bytes"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
@@ -25,19 +24,90 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
-	"time"
 )
 
 /**
  * All the public and support methods associated with the signing.
  * Nothing to do with the web or HTTP.
- * TODO : find a robust go public/private key signing algorithm.
  */
 
 // Crypto structure containing the public and private keys
 type Crypto struct {
 	publicKey  *rsa.PublicKey
 	privateKey *rsa.PrivateKey
+}
+
+// NewCrypto creates an new instance of the Crypto structure and generates
+//  a public / private key pair used to sign and verify OWIDs
+func NewCrypto() (*Crypto, error) {
+	var c Crypto
+	privateKey, err := rsa.GenerateKey(rand.Reader, 512)
+	if err != nil {
+		return nil, err
+	}
+	c.publicKey = &privateKey.PublicKey
+	c.privateKey = privateKey
+	return &c, nil
+}
+
+// NewCryptoSignOnly creates a new instance of the Crypto structure for signing
+// OWIDs only.
+func NewCryptoSignOnly(private string) (*Crypto, error) {
+	var c Crypto
+	privateKey, err := convertBytesToPrivateKey([]byte(private))
+	if err != nil {
+		return nil, err
+	}
+	c.privateKey = privateKey
+	return &c, nil
+}
+
+// NewCryptoVerifyOnly creates a new instance of the Crypto structure
+// for Verifying OWIDs only.
+func NewCryptoVerifyOnly(public string) (*Crypto, error) {
+	var c Crypto
+	publicKey, err := convertBytesToPublicKey([]byte(public))
+	if err != nil {
+		return nil, err
+	}
+	c.publicKey = publicKey
+	return &c, nil
+}
+
+//SignByteArray signs the byte array with the public key of the crypto provider.
+func (c *Crypto) SignByteArray(data []byte) ([]byte, error) {
+	if c.privateKey == nil && c.publicKey != nil {
+		return nil, errors.New(
+			"This instance of Crypto cannot be used to generate a signature")
+	}
+	h := sha256.Sum256(data)
+	signature, err := rsa.SignPKCS1v15(
+		rand.Reader,
+		c.privateKey,
+		crypto.SHA256,
+		h[:])
+	if err != nil {
+		return nil, err
+	}
+	return signature, nil
+}
+
+// VerifyByteArray returns true if the signature is valid for the data.
+func (c *Crypto) VerifyByteArray(data []byte, sig []byte) (bool, error) {
+	if c.publicKey == nil {
+		return false, errors.New(
+			"This instance of Crypto cannot be used to verify a signature")
+	}
+	h := sha256.Sum256(data)
+	err := rsa.VerifyPKCS1v15(
+		c.publicKey,
+		crypto.SHA256,
+		h[:],
+		sig)
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // getSubjectPublicKeyInfo returns the public key in SPKI format for use with
@@ -56,115 +126,6 @@ func (c *Crypto) getSubjectPublicKeyInfo() (string, error) {
 			},
 		),
 	), nil
-}
-
-// NewCrypto creates an new instance of the Crypto structure and generates
-//  a public / private key pair used to sign and verify OWIDs
-func NewCrypto() (*Crypto, error) {
-	var c Crypto
-
-	privateKey, err := rsa.GenerateKey(rand.Reader, 512)
-	if err != nil {
-		return nil, err
-	}
-
-	c.publicKey = &privateKey.PublicKey
-	c.privateKey = privateKey
-
-	return &c, nil
-}
-
-// NewCryptoSignOnly creates a new instance of the Crypto structure
-// for signing OWIDs only.
-func NewCryptoSignOnly(private string) (*Crypto, error) {
-	var c Crypto
-
-	privateKey, err := convertBytesToPrivateKey([]byte(private))
-	if err != nil {
-		return nil, err
-	}
-
-	c.privateKey = privateKey
-
-	return &c, nil
-}
-
-// NewCryptoVerifyOnly creates a new instance of the Crypto structure
-// for Verifying OWIDs only.
-func NewCryptoVerifyOnly(public string) (*Crypto, error) {
-	var c Crypto
-
-	publicKey, err := convertBytesToPublicKey([]byte(public))
-	if err != nil {
-		return nil, err
-	}
-
-	c.publicKey = publicKey
-
-	return &c, nil
-}
-
-// Sign generates a signature for the date and payload fields of an OWID
-// structure.
-func (c *Crypto) Sign(date time.Time, payload []byte) ([]byte, error) {
-	if c.privateKey == nil && c.publicKey != nil {
-		return nil, errors.New("This instance of Cypto cannot be used to " +
-			"generate a signature.")
-	}
-
-	var buf bytes.Buffer
-	err := writeDate(&buf, date)
-	if err != nil {
-		return nil, err
-	}
-	dateBytes := buf.Bytes()
-
-	hashed := sha256.Sum256(append(payload, dateBytes...))
-
-	signature, err := rsa.SignPKCS1v15(
-		rand.Reader,
-		c.privateKey,
-		crypto.SHA256,
-		hashed[:])
-	if err != nil {
-		return nil, err
-	}
-
-	return signature, nil
-}
-
-// Verify extracts the signature from an OWID and verifies that is has
-// been generated with the corresponding public key in the Crypto structure
-func (c *Crypto) Verify(id string) (bool, error) {
-
-	if c.privateKey != nil && c.publicKey == nil {
-		return false, errors.New("This instance of Cypto cannot be used to " +
-			"verify a signature.")
-	}
-
-	o, err := DecodeFromBase64(id)
-	if err != nil {
-		return false, err
-	}
-
-	var buf bytes.Buffer
-	err = writeDate(&buf, o.Date)
-	if err != nil {
-		return false, err
-	}
-	date := buf.Bytes()
-
-	hashed := sha256.Sum256(append(o.Payload, date...))
-	err = rsa.VerifyPKCS1v15(
-		c.publicKey,
-		crypto.SHA256,
-		hashed[:],
-		o.Signature)
-	if err != nil {
-		return false, err
-	}
-
-	return true, nil
 }
 
 func (c Crypto) publicKeyToPemString() string {

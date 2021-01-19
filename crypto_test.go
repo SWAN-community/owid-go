@@ -20,63 +20,38 @@ import (
 	"testing"
 )
 
-// TODO Lots of unit tests to make sure the crypto functions work.
-
 func newCrypto() (*Crypto, error) {
-	cry, err := NewCrypto()
+	c, err := NewCrypto()
 	if err != nil {
 		return nil, err
 	}
-
-	return cry, nil
+	return c, nil
 }
 
-func TestNewCrypto(t *testing.T) {
-	cry, err := newCrypto()
+func TestCrypto(t *testing.T) {
+	c, err := newCrypto()
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	privateKey := cry.privateKeyToPemString()
-	publicKey := cry.publicKeyToPemString()
-
-	_, err = NewCryptoSignOnly(privateKey)
+	privateKey := c.privateKeyToPemString()
+	publicKey := c.publicKeyToPemString()
+	s, err := NewCryptoSignOnly(privateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	_, err = NewCryptoVerifyOnly(publicKey)
+	v, err := NewCryptoVerifyOnly(publicKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-}
-
-func TestSignOnly(t *testing.T) {
-	cry, err := NewCryptoSignOnly(testPrivateKey)
+	a, err := s.SignByteArray([]byte(testPayload))
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	payload := []byte(testPayload)
-
-	_, err = cry.Sign(testDate, payload)
+	b, err := v.VerifyByteArray([]byte(testPayload), a)
 	if err != nil {
 		t.Fatal(err)
 	}
-}
-
-func TestVerifyOnly(t *testing.T) {
-	cry, err := NewCryptoVerifyOnly(testPublicKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	verified, err := cry.Verify(testOwid)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if verified == false {
+	if b != true {
 		t.Errorf("signature was invalid")
 	}
 }

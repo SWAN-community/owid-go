@@ -69,11 +69,10 @@ func HandlerRegister(s *Services) http.HandlerFunc {
 }
 
 func storeCreator(s *Services, d *Register) {
+
 	// Create the new node ready to have it's secret added and stored.
-
 	cry, err := NewCrypto()
-
-	c, err := newCreator(
+	c := newCreator(
 		d.Domain,
 		cry.privateKeyToPemString(),
 		cry.publicKeyToPemString(),

@@ -26,6 +26,7 @@ import (
 // Configuration details from appsettings.json for access to the AWS or Azure
 // storage.
 type Configuration struct {
+	Scheme          string `json:"scheme"` // The scheme to use for requests
 	BackgroundColor string `json:"backgroundColor"`
 	MessageColor    string `json:"messageColor"`
 	Debug           bool   `json:"debug"`

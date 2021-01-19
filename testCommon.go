@@ -56,12 +56,11 @@ func newTestStore() (*testStore, error) {
 }
 
 func (ts *testStore) GetCreator(domain string) (*Creator, error) {
-	c := Creator{
-		testDomain,
-		testPrivateKey,
-		testPublicKey,
-		testOrgName}
-
+	var c Creator
+	c.domain = domain
+	c.name = testOrgName
+	c.privateKey = testPrivateKey
+	c.publicKey = testPublicKey
 	return &c, nil
 }
 
@@ -69,29 +68,22 @@ func (ts *testStore) setCreator(c *Creator) error {
 	return nil
 }
 
-func getNewOWID(s Store) (string, error) {
+func getNewOWID(s Store) (*OWID, error) {
 	c, err := s.GetCreator(testDomain)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-
 	cry, err := NewCryptoSignOnly(c.privateKey)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-
-	date := time.Now().UTC()
-	payload := []byte(testPayload)
-
-	signature, err := cry.Sign(date, payload)
+	o, err := NewOwid(testDomain, time.Now().UTC(), []byte(testPayload))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-
-	o, err := NewOwid(testDomain, signature, date, payload)
-	owid, err := o.EncodeAsBase64()
+	err = o.Sign(cry)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return owid, nil
+	return o, nil
 }

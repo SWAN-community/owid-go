@@ -18,6 +18,7 @@ package owid
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 )
 
@@ -25,51 +26,65 @@ type verify struct {
 	Valid bool `json:"valid"`
 }
 
-// HandlerVerify verifies the signature in the incoming ID.
-// Returns if the ID is valid.
-// Decode the ID into an owid structure.
-// Get the public key from the store.
+// HandlerVerify verifies the signature in the incoming OWID. If the method is
+// POST and the content is binary data then the OWID is created using the
+// FromByteArray method. Otherwise the OWID is constructed form the base 64
+// encoded string in the owid parameter.
+// Returns true if the OWID is valid, otherwise false.
 func HandlerVerify(s *Services) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		err := r.ParseForm()
+		var v verify
+		o, err := verifyGetOWIDs(r)
 		if err != nil {
-			returnAPIError(s, w, err, http.StatusUnprocessableEntity)
+			returnAPIError(s, w, err, http.StatusBadRequest)
 			return
 		}
-
-		owid := r.FormValue("owid")
-
 		c, err := getCreatorFromRequest(s, r)
 		if err != nil {
 			returnAPIError(s, w, err, http.StatusInternalServerError)
 			return
 		}
-
-		cry, err := NewCryptoVerifyOnly(c.publicKey)
+		v.Valid, err = c.Verify(o)
+		if err != nil && err.Error() != "crypto/rsa: verification error" {
+			returnAPIError(s, w, err, http.StatusInternalServerError)
+			return
+		}
+		j, err := json.Marshal(v)
 		if err != nil {
 			returnAPIError(s, w, err, http.StatusInternalServerError)
 			return
 		}
-
-		v, err := cry.Verify(owid)
-		if err != nil {
-			returnAPIError(s, w, err, http.StatusUnprocessableEntity)
-			return
-		}
-
-		var vfy verify
-		vfy.Valid = v
-
-		json, err := json.Marshal(vfy)
-
-		if err != nil {
-			returnAPIError(s, w, err, http.StatusInternalServerError)
-			return
-		}
-
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
-		w.Write(json)
+		w.Write(j)
 	}
+}
+
+func verifyGetOWIDs(r *http.Request) (*OWID, error) {
+	err := r.ParseForm()
+	if err != nil {
+		return nil, err
+	}
+	if r.FormValue("owid") == "" {
+		return nil, fmt.Errorf("owid parameter must be provided")
+	}
+	if r.FormValue("root") == "" {
+		return nil, fmt.Errorf("root parameter must be provided")
+	}
+	a, err := TreeFromBase64(r.FormValue("root"))
+	if err != nil {
+		return nil, err
+	}
+	b, err := TreeFromBase64(r.FormValue("owid"))
+	if err != nil {
+		return nil, err
+	}
+	if r.FormValue("owid") != r.FormValue("root") {
+		_, err = a.AddChild(b)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return b, nil
 }

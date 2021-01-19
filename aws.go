@@ -150,15 +150,11 @@ func (a *AWS) getCreatorDirect(domain string) (*Creator, error) {
 		panic(fmt.Sprintf("Failed to unmarshal Record, %v", err))
 	}
 
-	c, err := newCreator(
+	c := newCreator(
 		item.Domain,
 		item.PrivateKey,
 		item.PublicKey,
 		item.Name)
-	if err != nil {
-		return nil, err
-	}
-
 	return c, nil
 }
 
@@ -278,15 +274,11 @@ func (a *AWS) fetchCreators() (map[string]*Creator, error) {
 			return nil, err
 		}
 
-		cs[item.Domain], err = newCreator(
+		cs[item.Domain] = newCreator(
 			item.Domain,
 			item.PrivateKey,
 			item.PublicKey,
 			item.Name)
-		if err != nil {
-			return nil, err
-		}
-
 	}
 
 	return cs, nil

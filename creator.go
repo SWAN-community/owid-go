@@ -17,6 +17,7 @@
 package owid
 
 import (
+	"fmt"
 	"time"
 )
 
@@ -26,6 +27,75 @@ type Creator struct {
 	privateKey string
 	publicKey  string
 	name       string // The name of the entity associated with the domain
+	sign       *Crypto
+	verify     *Crypto
+}
+
+// CreateOWID returns a new unsigned OWID from the creator containing the
+// payload provided.
+func (c *Creator) CreateOWID(payload []byte) *OWID {
+	var o OWID
+	o.Version = owidVersion
+	o.Domain = c.domain
+	o.Date = time.Now()
+	o.Payload = payload
+	return &o
+}
+
+// Sign the OWID by updating the signature field.
+func (c *Creator) Sign(o *OWID) error {
+	if c.domain != o.Domain {
+		return fmt.Errorf(
+			"Can't use creator '%s' to sign OWID for domain '%s'",
+			c.domain,
+			o.Domain)
+	}
+	x, err := c.NewCryptoSignOnly()
+	if err != nil {
+		return err
+	}
+	return o.Sign(x)
+}
+
+// Verify the OWID is valid for this creator.
+func (c *Creator) Verify(o *OWID) (bool, error) {
+	if c.domain != o.Domain {
+		return false, fmt.Errorf(
+			"Can't use creator '%s' to verify OWID for domain '%s'",
+			c.domain,
+			o.Domain)
+	}
+	x, err := c.NewCryptoVerifyOnly()
+	if err != nil {
+		return false, err
+	}
+	return o.VerifyWithCrypto(x)
+}
+
+// NewCryptoSignOnly creates a new instance of the Crypto structure
+// for signing OWIDs only.
+func (c *Creator) NewCryptoSignOnly() (*Crypto, error) {
+	if c.sign == nil {
+		var err error
+		c.sign, err = NewCryptoSignOnly(c.privateKey)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return c.sign, nil
+}
+
+// NewCryptoVerifyOnly creates a new instance of the Crypto structure
+// for Verifying OWIDs only.
+func (c *Creator) NewCryptoVerifyOnly() (*Crypto, error) {
+	if c.verify == nil {
+		var err error
+		c.verify, err = NewCryptoVerifyOnly(c.publicKey)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return c.verify, nil
 }
 
 // SubjectPublicKeyInfo returns the public key in SPKI form.
@@ -40,63 +110,15 @@ func (c *Creator) SubjectPublicKeyInfo() (string, error) {
 // Domain associated with the creator.
 func (c *Creator) Domain() string { return c.domain }
 
-// Sign the payload with the private key of the OWID creator.
-func (c *Creator) Sign(owid *OWID) ([]byte, error) {
-
-	date := time.Now().UTC()
-
-	// Get the OWID as a byte array so that it can be signed
-	b, err := owid.AsByteArray()
-	if err != nil {
-		return nil, err
-	}
-
-	// Get signing key
-	cry, err := NewCryptoSignOnly(c.privateKey)
-	if err != nil {
-		return nil, err
-	}
-
-	// Generate signature of OWID
-	return cry.Sign(date, b)
-}
-
-// CreateOWID makes a new OWID for the payload provided.
-func (c *Creator) CreateOWID(payload []byte) (string, error) {
-
-	date := time.Now().UTC()
-
-	// Get signing key
-	cry, err := NewCryptoSignOnly(c.privateKey)
-	if err != nil {
-		return "", err
-	}
-
-	// Generate signature of OWID
-	signature, err := cry.Sign(date, payload)
-	if err != nil {
-		return "", err
-	}
-
-	// Create the OWID
-	o, err := NewOwid(c.domain, signature, date, payload)
-	if err != nil {
-		return "", err
-	}
-
-	// Get the OWID as a base64 string
-	return o.EncodeAsBase64()
-}
-
 func newCreator(
 	domain string,
 	privateKey string,
 	publicKey string,
-	name string) (*Creator, error) {
-	c := Creator{
-		domain,
-		privateKey,
-		publicKey,
-		name}
-	return &c, nil
+	name string) *Creator {
+	var c Creator
+	c.domain = domain
+	c.privateKey = privateKey
+	c.publicKey = publicKey
+	c.name = name
+	return &c
 }

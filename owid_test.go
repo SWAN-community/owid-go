@@ -17,94 +17,206 @@
 package owid
 
 import (
+	"bytes"
+	"fmt"
 	"testing"
 )
 
-func newOwid() (*OWID, *Creator, error) {
-	cry, err := NewCryptoSignOnly(testPrivateKey)
+func newOWID() (*OWID, error) {
+	c, err := NewCryptoSignOnly(testPrivateKey)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-
-	c := Creator{
-		testDomain,
-		testPrivateKey,
-		testPublicKey,
-		testOrgName}
-
 	payload := []byte(testPayload)
-
-	signature, err := cry.Sign(testDate, payload)
+	o, err := NewOwid(testDomain, testDate, payload)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-
-	o, err := NewOwid(testDomain, signature, testDate, payload)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return o, &c, nil
+	o.Sign(c)
+	return o, nil
 }
 
-func TestOwidEncode(t *testing.T) {
-	o, _, err := newOwid()
+func newOWIDTree() (*OWID, error) {
+	r, err := newOWID()
 	if err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
-
-	owidJSON, err := o.EncodeAsJSON()
+	c, err := newOWID()
 	if err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
-
-	expected := testJSON
-	if owidJSON != expected {
-		t.Errorf("encode returned unexpected json: got %v want %v",
-			owidJSON, expected)
+	_, err = r.AddChild(c)
+	if err != nil {
+		return nil, err
 	}
+	return r, nil
 }
 
-func TestOwidEncodeAsBase64(t *testing.T) {
-	o, _, err := newOwid()
+func TestOWIDVerify(t *testing.T) {
+	o, err := newOWIDTree()
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	owid, err := o.EncodeAsBase64()
+	v, err := o.VerifyWithPublicKey(testPublicKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	expected := testOwid
-	if owid != expected {
-		t.Errorf("encode returned unexpected owid: got %v want %v", owid, expected)
+	if v != true {
+		t.Fatal(fmt.Errorf("OWID did not pass verification"))
 	}
 }
 
-func TestOwidDecodeAsBase64(t *testing.T) {
-	owid := testOwid
-
-	o, err := DecodeFromBase64(owid)
+func TestOWIDTreeJSON(t *testing.T) {
+	o, err := newOWIDTree()
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	expectedDomain := testDomain
-	if o.Domain != expectedDomain {
-		t.Errorf("decode returned unexpected value for domain, expected '%v' "+
-			"got '%v'", expectedDomain, o.Domain)
+	a, err := o.TreeAsJSON()
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	expectedDate := testDate
-	if o.Date != expectedDate {
-		t.Errorf("decode returned unexpected value for date, expected '%v' "+
-			"got '%v'", expectedDate, o.Date)
+	b, err := TreeFromJSON(a)
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	expectedPayload := testPayload
-	if string(o.Payload) != expectedPayload {
-		t.Errorf("decode returned unexpected value for payload, expected '%v' "+
-			"got '%v'", expectedPayload, string(o.Payload))
+	if o.compare(b) == false {
+		t.Error("encode and decode failed")
 	}
+}
+
+func TestOWIDTreeBase64(t *testing.T) {
+	o, err := newOWIDTree()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := o.TreeAsBase64()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := TreeFromBase64(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.compare(b) == false {
+		t.Error("encode and decode failed")
+	}
+}
+
+func TestOWIDBase64(t *testing.T) {
+	o, err := newOWID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := o.AsBase64()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := FromBase64(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.compare(b) == false {
+		t.Error("encode and decode failed")
+	}
+}
+
+func TestOWIDString(t *testing.T) {
+	o, err := newOWID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := FromBase64(o.AsString())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.compare(b) == false {
+		t.Error("encode and decode failed")
+	}
+}
+
+func TestOWIDTreeString(t *testing.T) {
+	o, err := newOWIDTree()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := TreeFromBase64(o.TreeAsString())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.compare(b) == false {
+		t.Error("encode and decode failed")
+	}
+}
+
+func TestOWIDTreeBase64CorruptShort(t *testing.T) {
+	o, err := newOWIDTree()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := o.TreeAsBase64()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = TreeFromBase64(a[:len(a)-1])
+	if err == nil {
+		t.Fatal(fmt.Errorf("corrupt base 64 string should result in error"))
+	}
+}
+
+func TestOWIDTreeBase64CorruptMiss(t *testing.T) {
+	o, err := newOWIDTree()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := o.TreeAsBase64()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = TreeFromBase64(a[1:])
+	if err == nil {
+		t.Fatal(fmt.Errorf("corrupt base 64 string should result in error"))
+	}
+}
+
+func TestOWIDTreeByteArrayCorruptReplace(t *testing.T) {
+	o, err := newOWIDTree()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := o.TreeAsByteArray()
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := 0
+	for i < len(a) {
+		err = corrupt(a, i)
+		if err == nil {
+			t.Fatal(fmt.Errorf("corrupt byte array should result in error"))
+		}
+		i++
+	}
+}
+
+func corrupt(a []byte, i int) error {
+	a[i] = a[i] + 1
+	n, err := TreeFromByteArray(a)
+	if err != nil {
+		return err
+	}
+	_, err = n.VerifyWithPublicKey(testPublicKey)
+	return err
+}
+
+func (o *OWID) compare(other *OWID) bool {
+	e := o.Version == other.Version &&
+		o.Date == other.Date &&
+		bytes.Equal(o.Signature, other.Signature) &&
+		bytes.Equal(o.Payload, other.Payload) &&
+		len(o.Children) == len(other.Children)
+	i := 0
+	for e == true && i < len(o.Children) {
+		e = e && o.Children[i].compare(other.Children[i])
+		i++
+	}
+	return e
 }

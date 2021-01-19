@@ -17,36 +17,43 @@
 package owid
 
 import (
+	"fmt"
 	"net/http"
 )
 
-// HandlerDecode Decodes and returns the OWID as a JSON.
-func HandlerDecode(s *Services) http.HandlerFunc {
+// HandlerPublicKey returns the public key associated with the creator.
+func HandlerPublicKey(s *Services) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-
-		err := r.ParseForm()
-		if err != nil {
-			returnAPIError(s, w, err, http.StatusUnprocessableEntity)
-			return
-		}
-
-		owid := r.FormValue("owid")
-
-		o, err := DecodeFromBase64(owid)
+		c, err := s.store.GetCreator(r.Host)
 		if err != nil {
 			returnAPIError(s, w, err, http.StatusInternalServerError)
 			return
 		}
-
-		json, err := o.EncodeAsJSON()
+		err = r.ParseForm()
 		if err != nil {
 			returnAPIError(s, w, err, http.StatusInternalServerError)
 			return
 		}
-
+		var p string
+		switch r.Form.Get("format") {
+		case "pkcs":
+			p = c.publicKey
+			break
+		case "spki":
+			p, err = c.SubjectPublicKeyInfo()
+			break
+		default:
+			err = fmt.Errorf(
+				"Format parameter 'spki' or 'pkcs' must be provided")
+			break
+		}
+		if err != nil {
+			returnAPIError(s, w, err, http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Write([]byte(json))
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Cache-Control", "private,max-age=1800")
+		w.Write([]byte(p))
 	}
 }

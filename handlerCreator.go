@@ -21,15 +21,14 @@ import (
 	"net/http"
 )
 
-// PublicCreator used by a supply chain partner to cache the publicKey associated with
-// the domain so that they do not need to call the end points to verify a
-// signature. For example; a bid request is received with IDs and those IDs need
-// to be verified before the bid is processed.
+// PublicCreator used by a supply chain partner to cache the publicKey
+// associated with the domain so that they do not need to call the end points to
+// verify a signature. For example; a request is received with OWIDs and those
+// OWIDs need to be verified before the bid is processed.
 type PublicCreator struct {
-	Domain        string `json:"domain"` // The domain that the name and key relate to
-	Name          string `json:"name"`
+	Domain        string `json:"domain"`        // The domain that the name and key relate to
+	Name          string `json:"name"`          // Common name of the creator
 	PublicKeySPKI string `json:"publicKeySPKI"` // The public key in SPKI form
-	// SSL       string // All the details from the SSL cert. Future.
 }
 
 // HandlerCreator Returns the public information associated with the creator.
@@ -40,7 +39,6 @@ func HandlerCreator(s *Services) http.HandlerFunc {
 			returnAPIError(s, w, err, http.StatusInternalServerError)
 			return
 		}
-
 		pc, err := publicCreator(c)
 		if err != nil {
 			returnAPIError(s, w, err, http.StatusInternalServerError)
@@ -51,10 +49,9 @@ func HandlerCreator(s *Services) http.HandlerFunc {
 			returnAPIError(s, w, err, http.StatusInternalServerError)
 			return
 		}
-
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Cache-Control", "private,max-age=1800")
 		w.Write(u)
 	}
 }
