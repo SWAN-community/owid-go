@@ -43,7 +43,7 @@ func (c *Creator) CreateOWID(payload []byte) *OWID {
 }
 
 // Sign the OWID by updating the signature field.
-func (c *Creator) Sign(o *OWID) error {
+func (c *Creator) Sign(o *OWID, others ...*OWID) error {
 	if c.domain != o.Domain {
 		return fmt.Errorf(
 			"Can't use creator '%s' to sign OWID for domain '%s'",
@@ -54,11 +54,11 @@ func (c *Creator) Sign(o *OWID) error {
 	if err != nil {
 		return err
 	}
-	return o.Sign(x)
+	return o.Sign(x, others)
 }
 
-// Verify the OWID is valid for this creator.
-func (c *Creator) Verify(o *OWID) (bool, error) {
+// Verify the OWID and any other OWIDs are valid for this creator.
+func (c *Creator) Verify(o *OWID, others ...*OWID) (bool, error) {
 	if c.domain != o.Domain {
 		return false, fmt.Errorf(
 			"Can't use creator '%s' to verify OWID for domain '%s'",
@@ -69,7 +69,7 @@ func (c *Creator) Verify(o *OWID) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return o.VerifyWithCrypto(x)
+	return o.VerifyWithCrypto(x, others)
 }
 
 // NewCryptoSignOnly creates a new instance of the Crypto structure

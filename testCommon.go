@@ -81,7 +81,7 @@ func getNewOWID(s Store) (*OWID, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = o.Sign(cry)
+	err = o.Sign(cry, nil)
 	if err != nil {
 		return nil, err
 	}

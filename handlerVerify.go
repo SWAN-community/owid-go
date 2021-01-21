@@ -34,7 +34,7 @@ type verify struct {
 func HandlerVerify(s *Services) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var v verify
-		o, err := verifyGetOWIDs(r)
+		p, o, err := verifyGetOWIDs(r)
 		if err != nil {
 			returnAPIError(s, w, err, http.StatusBadRequest)
 			return
@@ -44,7 +44,7 @@ func HandlerVerify(s *Services) http.HandlerFunc {
 			returnAPIError(s, w, err, http.StatusInternalServerError)
 			return
 		}
-		v.Valid, err = c.Verify(o)
+		v.Valid, err = c.Verify(o, p)
 		if err != nil && err.Error() != "crypto/rsa: verification error" {
 			returnAPIError(s, w, err, http.StatusInternalServerError)
 			return
@@ -61,30 +61,24 @@ func HandlerVerify(s *Services) http.HandlerFunc {
 	}
 }
 
-func verifyGetOWIDs(r *http.Request) (*OWID, error) {
+func verifyGetOWIDs(r *http.Request) (*OWID, *OWID, error) {
 	err := r.ParseForm()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if r.FormValue("owid") == "" {
-		return nil, fmt.Errorf("owid parameter must be provided")
+		return nil, nil, fmt.Errorf("owid parameter must be provided")
 	}
-	if r.FormValue("root") == "" {
-		return nil, fmt.Errorf("root parameter must be provided")
-	}
-	a, err := TreeFromBase64(r.FormValue("root"))
-	if err != nil {
-		return nil, err
-	}
-	b, err := TreeFromBase64(r.FormValue("owid"))
-	if err != nil {
-		return nil, err
-	}
-	if r.FormValue("owid") != r.FormValue("root") {
-		_, err = a.AddChild(b)
+	var p *OWID
+	if r.FormValue("parent") != "" {
+		p, err = FromBase64(r.FormValue("parent"))
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	return b, nil
+	o, err := FromBase64(r.FormValue("owid"))
+	if err != nil {
+		return nil, nil, err
+	}
+	return p, o, nil
 }

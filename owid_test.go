@@ -32,28 +32,12 @@ func newOWID() (*OWID, error) {
 	if err != nil {
 		return nil, err
 	}
-	o.Sign(c)
+	o.Sign(c, nil)
 	return o, nil
 }
 
-func newOWIDTree() (*OWID, error) {
-	r, err := newOWID()
-	if err != nil {
-		return nil, err
-	}
-	c, err := newOWID()
-	if err != nil {
-		return nil, err
-	}
-	_, err = r.AddChild(c)
-	if err != nil {
-		return nil, err
-	}
-	return r, nil
-}
-
 func TestOWIDVerify(t *testing.T) {
-	o, err := newOWIDTree()
+	o, err := newOWID()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,42 +47,6 @@ func TestOWIDVerify(t *testing.T) {
 	}
 	if v != true {
 		t.Fatal(fmt.Errorf("OWID did not pass verification"))
-	}
-}
-
-func TestOWIDTreeJSON(t *testing.T) {
-	o, err := newOWIDTree()
-	if err != nil {
-		t.Fatal(err)
-	}
-	a, err := o.TreeAsJSON()
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, err := TreeFromJSON(a)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if o.compare(b) == false {
-		t.Error("encode and decode failed")
-	}
-}
-
-func TestOWIDTreeBase64(t *testing.T) {
-	o, err := newOWIDTree()
-	if err != nil {
-		t.Fatal(err)
-	}
-	a, err := o.TreeAsBase64()
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, err := TreeFromBase64(a)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if o.compare(b) == false {
-		t.Error("encode and decode failed")
 	}
 }
 
@@ -134,56 +82,42 @@ func TestOWIDString(t *testing.T) {
 	}
 }
 
-func TestOWIDTreeString(t *testing.T) {
-	o, err := newOWIDTree()
+func TestOWIDBase64CorruptShort(t *testing.T) {
+	o, err := newOWID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := TreeFromBase64(o.TreeAsString())
+	a, err := o.AsBase64()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if o.compare(b) == false {
-		t.Error("encode and decode failed")
-	}
-}
-
-func TestOWIDTreeBase64CorruptShort(t *testing.T) {
-	o, err := newOWIDTree()
-	if err != nil {
-		t.Fatal(err)
-	}
-	a, err := o.TreeAsBase64()
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = TreeFromBase64(a[:len(a)-1])
+	_, err = FromBase64(a[:len(a)-1])
 	if err == nil {
 		t.Fatal(fmt.Errorf("corrupt base 64 string should result in error"))
 	}
 }
 
-func TestOWIDTreeBase64CorruptMiss(t *testing.T) {
-	o, err := newOWIDTree()
+func TestOWIDBase64CorruptMiss(t *testing.T) {
+	o, err := newOWID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err := o.TreeAsBase64()
+	a, err := o.AsBase64()
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = TreeFromBase64(a[1:])
+	_, err = FromBase64(a[1:])
 	if err == nil {
 		t.Fatal(fmt.Errorf("corrupt base 64 string should result in error"))
 	}
 }
 
-func TestOWIDTreeByteArrayCorruptReplace(t *testing.T) {
-	o, err := newOWIDTree()
+func TestOWIDByteArrayCorruptReplace(t *testing.T) {
+	o, err := newOWID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err := o.TreeAsByteArray()
+	a, err := o.AsByteArray()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +133,7 @@ func TestOWIDTreeByteArrayCorruptReplace(t *testing.T) {
 
 func corrupt(a []byte, i int) error {
 	a[i] = a[i] + 1
-	n, err := TreeFromByteArray(a)
+	n, err := FromByteArray(a)
 	if err != nil {
 		return err
 	}
@@ -208,15 +142,8 @@ func corrupt(a []byte, i int) error {
 }
 
 func (o *OWID) compare(other *OWID) bool {
-	e := o.Version == other.Version &&
+	return o.Version == other.Version &&
 		o.Date == other.Date &&
 		bytes.Equal(o.Signature, other.Signature) &&
-		bytes.Equal(o.Payload, other.Payload) &&
-		len(o.Children) == len(other.Children)
-	i := 0
-	for e == true && i < len(o.Children) {
-		e = e && o.Children[i].compare(other.Children[i])
-		i++
-	}
-	return e
+		bytes.Equal(o.Payload, other.Payload)
 }
