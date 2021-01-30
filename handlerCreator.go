@@ -18,6 +18,7 @@ package owid
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 )
 
@@ -52,7 +53,12 @@ func HandlerCreator(s *Services) http.HandlerFunc {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Header().Set("Cache-Control", "private,max-age=1800")
-		w.Write(u)
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(u)))
+		_, err = w.Write(u)
+		if err != nil {
+			returnAPIError(s, w, err, http.StatusInternalServerError)
+			return
+		}
 	}
 }
 

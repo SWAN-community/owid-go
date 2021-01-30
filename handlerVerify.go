@@ -57,7 +57,12 @@ func HandlerVerify(s *Services) http.HandlerFunc {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
-		w.Write(j)
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(j)))
+		_, err = w.Write(j)
+		if err != nil {
+			returnAPIError(s, w, err, http.StatusInternalServerError)
+			return
+		}
 	}
 }
 
