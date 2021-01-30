@@ -95,7 +95,7 @@ func (n *Node) GetRoot() *Node {
 	return r
 }
 
-// Find the first ID that matches the condition.
+// Find the first Node that matches the condition.
 func (n *Node) Find(condition func(n *Node) bool) *Node {
 	q := list.New()
 	q.PushBack(n)
