@@ -26,12 +26,38 @@ import (
 // The base year for all dates encoded with the io time methods.
 var ioDateBase = time.Date(2020, time.Month(1), 1, 0, 0, 0, 0, time.UTC)
 
+// The length of an OWID signature in bytes.
+const signatureLength = 64
+
 func readString(b *bytes.Buffer) (string, error) {
 	s, err := b.ReadBytes(0)
 	if err == nil {
 		return string(s[0 : len(s)-1]), err
 	}
 	return "", err
+}
+
+func readSignature(b *bytes.Buffer) ([]byte, error) {
+	v := b.Next(int(signatureLength))
+	if len(v) != signatureLength {
+		return nil, fmt.Errorf(
+			"Signature length '%d' not compaitable with '%d' OWID signature "+
+				"length",
+			len(v),
+			signatureLength)
+	}
+	return v, nil
+}
+
+func writeSignature(b *bytes.Buffer, v []byte) error {
+	if len(v) != signatureLength {
+		return fmt.Errorf(
+			"Provided signature length '%d' not compaitable with '%d' "+
+				"OWID signature length",
+			len(v),
+			signatureLength)
+	}
+	return writeByteArrayNoLength(b, v)
 }
 
 func readByteArray(b *bytes.Buffer) ([]byte, error) {
@@ -47,6 +73,10 @@ func writeByteArray(b *bytes.Buffer, v []byte) error {
 	if err != nil {
 		return err
 	}
+	return writeByteArrayNoLength(b, v)
+}
+
+func writeByteArrayNoLength(b *bytes.Buffer, v []byte) error {
 	l, err := b.Write(v)
 	if err == nil {
 		if l != len(v) {

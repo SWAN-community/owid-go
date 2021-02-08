@@ -33,9 +33,9 @@ const (
 type OWID struct {
 	Version   byte      `json:"version"`   // The byte version of the OWID. Version 1 only.
 	Domain    string    `json:"domain"`    // Domain associated with the creator.
-	Signature []byte    `json:"signature"` // Signature for this OWID and it's ancestor from the creator.
 	Date      time.Time `json:"date"`      // The date and time to the nearest minute in UTC of the creation.
 	Payload   []byte    `json:"payload"`   // Array of bytes that form the identifier.
+	Signature []byte    `json:"signature"` // Signature for this OWID and it's ancestor from the creator.
 }
 
 // PayloadAsString converts the payload to a string.
@@ -130,7 +130,7 @@ func (o *OWID) ToBuffer(f *bytes.Buffer) error {
 	if err != nil {
 		return err
 	}
-	err = writeByteArray(f, o.Signature)
+	err = writeSignature(f, o.Signature)
 	if err != nil {
 		return err
 	}
@@ -233,7 +233,7 @@ func fromBufferV1(b *bytes.Buffer, o *OWID) error {
 	if err != nil {
 		return err
 	}
-	o.Signature, err = readByteArray(b)
+	o.Signature, err = readSignature(b)
 	if err != nil {
 		return err
 	}
