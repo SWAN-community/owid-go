@@ -52,9 +52,10 @@ func NewStore(owidConfig Configuration) Store {
 	var owidStore Store
 	var err error
 
-	azureAccountName, azureAccountKey :=
+	azureAccountName, azureAccountKey, gcpProject :=
 		os.Getenv("AZURE_STORAGE_ACCOUNT"),
-		os.Getenv("AZURE_STORAGE_ACCESS_KEY")
+		os.Getenv("AZURE_STORAGE_ACCESS_KEY"),
+		os.Getenv("GCP_PROJECT")
 	if len(azureAccountName) > 0 || len(azureAccountKey) > 0 {
 		if len(azureAccountName) == 0 || len(azureAccountKey) == 0 {
 			panic(errors.New("Either the AZURE_STORAGE_ACCOUNT or " +
@@ -64,6 +65,11 @@ func NewStore(owidConfig Configuration) Store {
 		owidStore, err = NewAzure(
 			azureAccountName,
 			azureAccountKey)
+		if err != nil {
+			panic(err)
+		}
+	} else if len(gcpProject) > 0 {
+		owidStore, err = NewFirebase(gcpProject)
 		if err != nil {
 			panic(err)
 		}
