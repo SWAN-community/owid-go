@@ -1,4 +1,4 @@
-module github.com/51Degrees/owid-go
+module github.com/SWAN-community/owid-go
 
 go 1.12
 
