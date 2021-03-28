@@ -33,13 +33,8 @@ type Creator struct {
 
 // CreateOWID returns a new unsigned OWID from the creator containing the
 // payload provided.
-func (c *Creator) CreateOWID(payload []byte) *OWID {
-	var o OWID
-	o.Version = owidVersion
-	o.Domain = c.domain
-	o.Date = time.Now()
-	o.Payload = payload
-	return &o
+func (c *Creator) CreateOWID(payload []byte) (*OWID, error) {
+	return NewOwid(c.domain, time.Now(), payload)
 }
 
 // Sign the OWID by updating the signature field.
@@ -55,6 +50,19 @@ func (c *Creator) Sign(o *OWID, others ...*OWID) error {
 		return err
 	}
 	return o.Sign(x, others)
+}
+
+// CreateOWIDandSign the OWID with the payload and signs the result.
+func (c *Creator) CreateOWIDandSign(payload []byte) (*OWID, error) {
+	o, err := c.CreateOWID(payload)
+	if err != nil {
+		return nil, err
+	}
+	err = c.Sign(o)
+	if err != nil {
+		return nil, err
+	}
+	return o, nil
 }
 
 // Verify the OWID and any other OWIDs are valid for this creator.

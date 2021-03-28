@@ -22,11 +22,13 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"time"
 )
 
 const (
-	owidVersion = 1
+	owidVersion1 byte = 1
+	owidVersion2 byte = 2
 )
 
 // OWID structure which can be used as a node in a tree.
@@ -36,6 +38,12 @@ type OWID struct {
 	Date      time.Time `json:"date"`      // The date and time to the nearest minute in UTC of the creation.
 	Payload   []byte    `json:"payload"`   // Array of bytes that form the identifier.
 	Signature []byte    `json:"signature"` // Signature for this OWID and it's ancestor from the creator.
+}
+
+// Age returns the number of complete minutes that have elapsed since the OWID
+// was created. The granularity is to the nearest minute.
+func (o *OWID) Age() int {
+	return int(time.Now().Sub(o.Date).Minutes())
 }
 
 // PayloadAsString converts the payload to a string.
@@ -50,7 +58,7 @@ func (o *OWID) PayloadAsPrintable() string {
 
 // PayloadAsBase64 returns the payload as a URL encoded base 64 string.
 func (o *OWID) PayloadAsBase64() string {
-	return base64.URLEncoding.EncodeToString(o.Payload)
+	return base64.RawStdEncoding.EncodeToString(o.Payload)
 }
 
 // NewOwid creates a new unsigned instance of the OWID structure.
@@ -59,7 +67,7 @@ func NewOwid(
 	date time.Time,
 	payload []byte) (*OWID, error) {
 	var o OWID
-	o.Version = owidVersion
+	o.Version = owidVersion2
 	o.Domain = domain
 	o.Date = date
 	o.Payload = payload
@@ -103,11 +111,14 @@ func (o *OWID) VerifyWithPublicKey(
 // Verify this OWID and it's ancestors by fetching the public key from the
 // domain associated with the OWID.
 func (o *OWID) Verify(scheme string) (bool, error) {
-	r, err := http.Get(fmt.Sprintf(
-		"%s://%s/owid/api/v%d/public-key?format=pkcs",
-		scheme,
-		o.Domain,
-		o.Version))
+	var u url.URL
+	u.Scheme = scheme
+	u.Host = o.Domain
+	u.Path = fmt.Sprintf("/owid/api/v%d/public-key", o.Version)
+	q := u.Query()
+	q.Set("format", "pkcs")
+	u.RawQuery = q.Encode()
+	r, err := http.Get(u.String())
 	if err != nil {
 		return false, err
 	}
@@ -137,6 +148,16 @@ func (o *OWID) ToBuffer(f *bytes.Buffer) error {
 	return nil
 }
 
+// ToQuery adds the OWID to a query string.
+func (o *OWID) ToQuery(k string, q *url.Values) error {
+	v, err := o.AsBase64()
+	if err != nil {
+		return err
+	}
+	q.Set(k, v)
+	return nil
+}
+
 // AsByteArray returns the OWID as a byte array.
 func (o *OWID) AsByteArray() ([]byte, error) {
 	var f bytes.Buffer
@@ -153,7 +174,7 @@ func (o *OWID) AsBase64() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return base64.StdEncoding.EncodeToString(b), nil
+	return base64.RawStdEncoding.EncodeToString(b), nil
 }
 
 // AsString returns the OWID as a base 64 string or the text of any error
@@ -175,8 +196,11 @@ func FromBuffer(b *bytes.Buffer) (*OWID, error) {
 		return nil, err
 	}
 	switch o.Version {
-	case 1:
-		fromBufferV1(b, &o)
+	case owidVersion1:
+		fromBuffer(b, &o)
+		break
+	case owidVersion2:
+		fromBuffer(b, &o)
 		break
 	default:
 		return nil, fmt.Errorf("Version '%d' not supported", o.Version)
@@ -191,11 +215,24 @@ func FromByteArray(b []byte) (*OWID, error) {
 
 // FromBase64 creates a single OWID from the base 64 string.
 func FromBase64(value string) (*OWID, error) {
-	b, err := base64.StdEncoding.DecodeString(value)
+	b, err := base64.RawStdEncoding.DecodeString(value)
 	if err != nil {
 		return nil, err
 	}
 	return FromByteArray(b)
+}
+
+// FromForm extracts the base64 string from the form and returns the OWID.
+// If the key is missing or the string is not valid then an error is returned.
+func FromForm(q *url.Values, n string) (*OWID, error) {
+	if q.Get(n) == "" {
+		return nil, fmt.Errorf("Key '%s' missing from form", n)
+	}
+	o, err := FromBase64(q.Get(n))
+	if err != nil {
+		return nil, fmt.Errorf("Key '%s' %s", n, err.Error())
+	}
+	return o, nil
 }
 
 // dataForCrypto adds the fields from this OWID to the byte buffer without
@@ -219,13 +256,13 @@ func (o *OWID) dataForCrypto(others []*OWID) ([]byte, error) {
 	return f.Bytes(), nil
 }
 
-func fromBufferV1(b *bytes.Buffer, o *OWID) error {
+func fromBuffer(b *bytes.Buffer, o *OWID) error {
 	var err error
 	o.Domain, err = readString(b)
 	if err != nil {
 		return err
 	}
-	o.Date, err = readDate(b)
+	o.Date, err = readDate(b, o.Version)
 	if err != nil {
 		return err
 	}
@@ -249,7 +286,7 @@ func (o *OWID) toBufferNoSignature(b *bytes.Buffer) error {
 	if err != nil {
 		return err
 	}
-	err = writeDate(b, o.Date)
+	err = writeDate(b, o.Date, o.Version)
 	if err != nil {
 		return err
 	}

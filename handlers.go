@@ -17,15 +17,19 @@
 package owid
 
 import (
+	"fmt"
 	"net/http"
 )
 
 // AddHandlers to the http default mux for shared web state.
 func AddHandlers(s *Services) {
 	http.HandleFunc("/owid/register", HandlerRegister(s))
-	http.HandleFunc("/owid/api/v1/public-key", HandlerPublicKey(s))
-	http.HandleFunc("/owid/api/v1/creator", HandlerCreator(s))
-	http.HandleFunc("/owid/api/v1/verify", HandlerVerify(s))
+	for i := owidVersion1; i <= owidVersion2; i++ {
+		b := fmt.Sprintf("/owid/api/v%d/", i)
+		http.HandleFunc(b+"public-key", HandlerPublicKey(s))
+		http.HandleFunc(b+"creator", HandlerCreator(s))
+		http.HandleFunc(b+"verify", HandlerVerify(s))
+	}
 }
 
 func returnAPIError(
@@ -33,7 +37,6 @@ func returnAPIError(
 	w http.ResponseWriter,
 	err error,
 	code int) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	http.Error(w, err.Error(), code)

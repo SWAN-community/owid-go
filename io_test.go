@@ -26,14 +26,14 @@ import (
 func TestIoTime(t *testing.T) {
 	d := time.Now().UTC()
 	var b bytes.Buffer
-	err := writeDate(&b, d)
+	err := writeDate(&b, d, 2)
 	if err != nil {
 		fmt.Println(err)
 		t.Fail()
 	}
 	i := b.Bytes()
 	c := bytes.NewBuffer(i)
-	r, err := readDate(c)
+	r, err := readDate(c, 2)
 	if err != nil {
 		fmt.Println(err)
 		t.Fail()

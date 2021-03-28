@@ -106,7 +106,18 @@ func writeTime(b *bytes.Buffer, t time.Time) error {
 	return writeByteArray(b, d)
 }
 
-func readDate(b *bytes.Buffer) (time.Time, error) {
+func readDate(b *bytes.Buffer, v byte) (time.Time, error) {
+	switch v {
+	case owidVersion1:
+		return readDateV1(b)
+	case owidVersion2:
+		return readDateV2(b)
+	default:
+		return time.Time{}, fmt.Errorf("Date version '%d' is invalid", v)
+	}
+}
+
+func readDateV1(b *bytes.Buffer) (time.Time, error) {
 	h, err := b.ReadByte()
 	if err != nil {
 		return time.Time{}, err
@@ -119,13 +130,36 @@ func readDate(b *bytes.Buffer) (time.Time, error) {
 	return ioDateBase.Add(time.Duration(d) * time.Hour * 24), nil
 }
 
-func writeDate(b *bytes.Buffer, t time.Time) error {
+func readDateV2(b *bytes.Buffer) (time.Time, error) {
+	i, err := readUint32(b)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return ioDateBase.Add(time.Duration(i) * time.Minute), nil
+}
+
+func writeDate(b *bytes.Buffer, t time.Time, v byte) error {
+	switch v {
+	case owidVersion1:
+		return writeDateV1(b, t)
+	case owidVersion2:
+		return writeDateV2(b, t)
+	default:
+		return fmt.Errorf("Date version '%d' is invalid", v)
+	}
+}
+
+func writeDateV1(b *bytes.Buffer, t time.Time) error {
 	i := int(t.Sub(ioDateBase).Hours() / 24)
 	err := writeByte(b, byte(i>>8))
 	if err != nil {
 		return err
 	}
 	return writeByte(b, byte(i&0x00FF))
+}
+
+func writeDateV2(b *bytes.Buffer, t time.Time) error {
+	return writeUint32(b, uint32(t.Sub(ioDateBase).Minutes()))
 }
 
 func readByte(b *bytes.Buffer) (byte, error) {
