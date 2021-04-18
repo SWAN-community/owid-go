@@ -17,7 +17,6 @@
 package owid
 
 import (
-	"compress/gzip"
 	"fmt"
 	"net/http"
 )
@@ -52,16 +51,6 @@ func HandlerPublicKey(s *Services) http.HandlerFunc {
 			returnAPIError(s, w, err, http.StatusInternalServerError)
 			return
 		}
-		g := gzip.NewWriter(w)
-		defer g.Close()
-		w.Header().Set("Content-Encoding", "gzip")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.Header().Set("Cache-Control", "private,max-age=1800")
-		_, err = g.Write([]byte(p))
-		if err != nil {
-			returnAPIError(s, w, err, http.StatusInternalServerError)
-			return
-		}
+		sendResponse(s, w, "text/plain; charset=utf-8", []byte(p))
 	}
 }

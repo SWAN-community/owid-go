@@ -17,7 +17,6 @@
 package owid
 
 import (
-	"compress/gzip"
 	"encoding/json"
 	"net/http"
 )
@@ -50,17 +49,7 @@ func HandlerCreator(s *Services) http.HandlerFunc {
 			returnAPIError(s, w, err, http.StatusInternalServerError)
 			return
 		}
-		g := gzip.NewWriter(w)
-		defer g.Close()
-		w.Header().Set("Content-Encoding", "gzip")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.Header().Set("Cache-Control", "private,max-age=1800")
-		_, err = g.Write(u)
-		if err != nil {
-			returnAPIError(s, w, err, http.StatusInternalServerError)
-			return
-		}
+		sendResponse(s, w, "application/json; charset=utf-8", u)
 	}
 }
 

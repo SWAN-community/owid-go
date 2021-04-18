@@ -17,7 +17,9 @@
 package owid
 
 import (
+	"compress/gzip"
 	"fmt"
+	"html/template"
 	"net/http"
 )
 
@@ -66,4 +68,48 @@ func getCreatorFromRequest(s *Services, r *http.Request) (*Creator, error) {
 	}
 
 	return c, nil
+}
+
+// getWriter creates a new compressed writer for the content type provided.
+func getWriter(w http.ResponseWriter, c string) *gzip.Writer {
+	g := gzip.NewWriter(w)
+	w.Header().Set("Content-Encoding", "gzip")
+	w.Header().Set("Content-Type", c)
+	w.Header().Set("Cache-Control", "no-cache")
+	return g
+}
+
+func sendHTMLTemplate(s *Services,
+	w http.ResponseWriter,
+	t *template.Template,
+	m interface{}) {
+	g := getWriter(w, "text/html; charset=utf-8")
+	defer g.Close()
+	err := t.Execute(g, m)
+	if err != nil {
+		returnServerError(s, w, err)
+	}
+}
+
+func sendResponse(
+	s *Services,
+	w http.ResponseWriter,
+	c string,
+	b []byte) {
+	g := getWriter(w, c)
+	defer g.Close()
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	l, err := g.Write(b)
+	if err != nil {
+		returnAPIError(s, w, err, http.StatusInternalServerError)
+		return
+	}
+	if l != len(b) {
+		returnAPIError(
+			s,
+			w,
+			fmt.Errorf("Byte count mismatch"),
+			http.StatusInternalServerError)
+		return
+	}
 }
