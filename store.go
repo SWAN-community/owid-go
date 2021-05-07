@@ -69,6 +69,7 @@ func NewStore(owidConfig Configuration) Store {
 			panic(err)
 		}
 	} else if len(gcpProject) > 0 {
+		log.Printf("OWID: Using Google Firebase")
 		owidStore, err = NewFirebase(gcpProject)
 		if err != nil {
 			panic(err)
