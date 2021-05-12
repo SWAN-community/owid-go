@@ -27,6 +27,7 @@ import (
 )
 
 const (
+	owidEmpty    byte = 0
 	owidVersion1 byte = 1
 	owidVersion2 byte = 2
 )
@@ -148,6 +149,12 @@ func (o *OWID) ToBuffer(f *bytes.Buffer) error {
 	return nil
 }
 
+// EmptyToBuffer writes an empty OWID marker. Used to indicate optional OWIDs
+// in byte arrays.
+func EmptyToBuffer(f *bytes.Buffer) error {
+	return writeByte(f, owidEmpty)
+}
+
 // ToQuery adds the OWID to a query string.
 func (o *OWID) ToQuery(k string, q *url.Values) error {
 	v, err := o.AsBase64()
@@ -196,6 +203,8 @@ func FromBuffer(b *bytes.Buffer) (*OWID, error) {
 		return nil, err
 	}
 	switch o.Version {
+	case owidEmpty:
+		break
 	case owidVersion1:
 		fromBuffer(b, &o)
 		break
