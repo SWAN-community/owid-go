@@ -52,10 +52,11 @@ func NewStore(owidConfig Configuration) Store {
 	var owidStore Store
 	var err error
 
-	azureAccountName, azureAccountKey, gcpProject :=
+	azureAccountName, azureAccountKey, gcpProject, owidFile :=
 		os.Getenv("AZURE_STORAGE_ACCOUNT"),
 		os.Getenv("AZURE_STORAGE_ACCESS_KEY"),
-		os.Getenv("GCP_PROJECT")
+		os.Getenv("GCP_PROJECT"),
+		os.Getenv("OWID_FILE")
 	if len(azureAccountName) > 0 || len(azureAccountKey) > 0 {
 		if len(azureAccountName) == 0 || len(azureAccountKey) == 0 {
 			panic(errors.New("Either the AZURE_STORAGE_ACCOUNT or " +
@@ -69,7 +70,14 @@ func NewStore(owidConfig Configuration) Store {
 			panic(err)
 		}
 	} else if len(gcpProject) > 0 {
+		log.Printf("OWID: Using Google Firebase")
 		owidStore, err = NewFirebase(gcpProject)
+		if err != nil {
+			panic(err)
+		}
+	} else if len(owidFile) > 0 {
+		log.Printf("OWID: Using local storage")
+		owidStore, err = NewLocalStore(owidFile)
 		if err != nil {
 			panic(err)
 		}
