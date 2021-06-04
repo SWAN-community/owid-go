@@ -52,14 +52,15 @@ func NewStore(owidConfig Configuration) Store {
 	var owidStore Store
 	var err error
 
-	azureAccountName, azureAccountKey, gcpProject, owidFile, awsLoadConfig, os :=
+	azureAccountName, azureAccountKey, gcpProject, owidFile, awsEnabled, os :=
 		os.Getenv("AZURE_STORAGE_ACCOUNT"),
 		os.Getenv("AZURE_STORAGE_ACCESS_KEY"),
 		os.Getenv("GCP_PROJECT"),
 		os.Getenv("OWID_FILE"),
-		os.Getenv("AWS_SDK_LOAD_CONFIG"),
+		os.Getenv("AWS_ENABLED"),
 		os.Getenv("OWID_STORE")
-	if (len(azureAccountName) > 0 || len(azureAccountKey) > 0) && (os == "" || os == "azure") {
+	if (len(azureAccountName) > 0 || len(azureAccountKey) > 0) &&
+		(os == "" || os == "azure") {
 		if len(azureAccountName) == 0 || len(azureAccountKey) == 0 {
 			panic(errors.New("Either the AZURE_STORAGE_ACCOUNT or " +
 				"AZURE_STORAGE_ACCESS_KEY environment variable is not set"))
@@ -83,7 +84,7 @@ func NewStore(owidConfig Configuration) Store {
 		if err != nil {
 			panic(err)
 		}
-	} else if len(awsLoadConfig) > 0 && (os == "" || os == "aws") {
+	} else if len(awsEnabled) > 0 && (os == "" || os == "aws") {
 		log.Printf("OWID: Using AWS DynamoDB")
 		owidStore, err = NewAWS()
 		if err != nil {
