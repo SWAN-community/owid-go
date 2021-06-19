@@ -21,9 +21,12 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/bxcodec/httpcache"
 )
 
 const (
@@ -31,6 +34,16 @@ const (
 	owidVersion1 byte = 1
 	owidVersion2 byte = 2
 )
+
+var client *http.Client
+
+func init() {
+	client = &http.Client{}
+	_, err := httpcache.NewWithInmemoryCache(client, true, time.Second*60)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
 
 // OWID structure which can be used as a node in a tree.
 type OWID struct {
@@ -59,7 +72,7 @@ func (o *OWID) PayloadAsPrintable() string {
 
 // PayloadAsBase64 returns the payload as a URL encoded base 64 string.
 func (o *OWID) PayloadAsBase64() string {
-	return base64.RawStdEncoding.EncodeToString(o.Payload)
+	return base64.StdEncoding.EncodeToString(o.Payload)
 }
 
 // NewOwid creates a new unsigned instance of the OWID structure.
@@ -119,7 +132,7 @@ func (o *OWID) Verify(scheme string) (bool, error) {
 	q := u.Query()
 	q.Set("format", "pkcs")
 	u.RawQuery = q.Encode()
-	r, err := http.Get(u.String())
+	r, err := client.Get(u.String())
 	if err != nil {
 		return false, err
 	}
@@ -181,7 +194,7 @@ func (o *OWID) AsBase64() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return base64.RawStdEncoding.EncodeToString(b), nil
+	return base64.StdEncoding.EncodeToString(b), nil
 }
 
 // AsString returns the OWID as a base 64 string or the text of any error
@@ -207,10 +220,8 @@ func FromBuffer(b *bytes.Buffer) (*OWID, error) {
 		break
 	case owidVersion1:
 		fromBuffer(b, &o)
-		break
 	case owidVersion2:
 		fromBuffer(b, &o)
-		break
 	default:
 		return nil, fmt.Errorf("Version '%d' not supported", o.Version)
 	}
@@ -224,7 +235,7 @@ func FromByteArray(b []byte) (*OWID, error) {
 
 // FromBase64 creates a single OWID from the base 64 string.
 func FromBase64(value string) (*OWID, error) {
-	b, err := base64.RawStdEncoding.DecodeString(value)
+	b, err := base64.StdEncoding.DecodeString(value)
 	if err != nil {
 		return nil, err
 	}
