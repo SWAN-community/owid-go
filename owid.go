@@ -21,12 +21,9 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"net/url"
 	"time"
-
-	"github.com/bxcodec/httpcache"
 )
 
 const (
@@ -39,10 +36,6 @@ var client *http.Client
 
 func init() {
 	client = &http.Client{}
-	_, err := httpcache.NewWithInmemoryCache(client, true, time.Second*60)
-	if err != nil {
-		log.Fatal(err)
-	}
 }
 
 // OWID structure which can be used as a node in a tree.
@@ -125,10 +118,10 @@ func (o *OWID) VerifyWithPublicKey(
 // Verify this OWID and it's ancestors by fetching the public key from the
 // domain associated with the OWID.
 func (o *OWID) Verify(scheme string) (bool, error) {
-	var u url.URL
-	u.Scheme = scheme
-	u.Host = o.Domain
-	u.Path = fmt.Sprintf("/owid/api/v%d/public-key", o.Version)
+	u := url.URL{
+		Scheme: scheme,
+		Host:   o.Domain,
+		Path:   fmt.Sprintf("/owid/api/v%d/public-key", o.Version)}
 	q := u.Query()
 	q.Set("format", "pkcs")
 	u.RawQuery = q.Encode()
@@ -136,6 +129,7 @@ func (o *OWID) Verify(scheme string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	defer r.Body.Close()
 	if r.StatusCode != http.StatusOK {
 		return false, fmt.Errorf(
 			"Domain '%s' return code '%d'",

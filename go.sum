@@ -62,10 +62,6 @@ github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03
 github.com/BurntSushi/xgb v0.0.0-20160522181843-27f122750802/go.mod h1:IVnqGOEym/WlBOVXweHU+Q+/VP0lqqI8lqeDx9IjBqo=
 github.com/aws/aws-sdk-go v1.35.27 h1:F0dUW+kouzchjt4X6kYfYMw1YtQPkA4pihpCDqQMrq8=
 github.com/aws/aws-sdk-go v1.35.27/go.mod h1:tlPOdRjfxPBpNIwqDj61rmsnA85v9jc0Ps9+muhnW+k=
-github.com/bxcodec/gotcha v1.0.0-beta.2 h1:0jY/Mx6O5jzM2fkcz84zzyy67hLu/bKGJEFTtcRmw5I=
-github.com/bxcodec/gotcha v1.0.0-beta.2/go.mod h1:MEL9PRYL9Squu1zxreMIzJU6xtMouPmQybWEtXrL1nk=
-github.com/bxcodec/httpcache v1.0.0-beta.3 h1:4h+Yoda40PthVkiFa5hPtCoH46qbDRq/iCT7M5ACoR4=
-github.com/bxcodec/httpcache v1.0.0-beta.3/go.mod h1:NdIkH0u1smImRyp35nIGeqG5IFeKbnyyBIv8cEGSXMY=
 github.com/census-instrumentation/opencensus-proto v0.2.1/go.mod h1:f6KPmirojxKA12rnyqOA5BBL4O983OfeGPqjHWSTneU=
 github.com/chzyer/logex v1.1.10/go.mod h1:+Ywpsq7O8HXn0nuIou7OrIPyXbp3wmkHB+jjWRnGsAI=
 github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e/go.mod h1:nSuG5e5PlCu98SY8svDHJxuZscDgtXS6KTTbou5AhLI=

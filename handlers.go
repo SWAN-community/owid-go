@@ -75,7 +75,6 @@ func getWriter(w http.ResponseWriter, c string) *gzip.Writer {
 	g := gzip.NewWriter(w)
 	w.Header().Set("Content-Encoding", "gzip")
 	w.Header().Set("Content-Type", c)
-	w.Header().Set("Cache-Control", "no-cache")
 	return g
 }
 
@@ -83,6 +82,7 @@ func sendHTMLTemplate(s *Services,
 	w http.ResponseWriter,
 	t *template.Template,
 	m interface{}) {
+	w.Header().Set("Cache-Control", "no-cache")
 	g := getWriter(w, "text/html; charset=utf-8")
 	defer g.Close()
 	err := t.Execute(g, m)

@@ -49,6 +49,7 @@ func HandlerCreator(s *Services) http.HandlerFunc {
 			returnAPIError(s, w, err, http.StatusInternalServerError)
 			return
 		}
+		w.Header().Set("Cache-Control", "max-age=60")
 		sendResponse(s, w, "application/json; charset=utf-8", u)
 	}
 }

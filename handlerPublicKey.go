@@ -51,6 +51,7 @@ func HandlerPublicKey(s *Services) http.HandlerFunc {
 			returnAPIError(s, w, err, http.StatusInternalServerError)
 			return
 		}
+		w.Header().Set("Cache-Control", "max-age=60")
 		sendResponse(s, w, "text/plain; charset=utf-8", []byte(p))
 	}
 }
