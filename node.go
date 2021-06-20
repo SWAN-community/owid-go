@@ -114,7 +114,7 @@ func (n *Node) Find(condition func(n *Node) bool) *Node {
 }
 
 // AddChild adds the child to the children of this Node returning the index of
-// the child.
+// the child. Returns the index of the added child.
 func (n *Node) AddChild(child *Node) (uint32, error) {
 	if child == nil {
 		return uint32(0), fmt.Errorf("child must for a valid array")

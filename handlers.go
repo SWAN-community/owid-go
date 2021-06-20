@@ -31,6 +31,9 @@ func AddHandlers(s *Services) {
 		http.HandleFunc(b+"public-key", HandlerPublicKey(s))
 		http.HandleFunc(b+"creator", HandlerCreator(s))
 		http.HandleFunc(b+"verify", HandlerVerify(s))
+		if s.config.Debug {
+			http.HandleFunc(b+"owids", HandlerOwidsJSON(s))
+		}
 	}
 }
 

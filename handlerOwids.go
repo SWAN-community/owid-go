@@ -17,28 +17,27 @@
 package owid
 
 import (
-	"sync"
+	"encoding/json"
+	"net/http"
 )
 
-// common is a partial implementation of sws.Store for use with other more
-// complex implementations, and the test methods.
-type common struct {
-	creators map[string]*Creator // Map of domain names to nodes
-	mutex    *sync.Mutex         // mutual-exclusion lock used for refresh
+// HandlerNodesJSON is a handler that returns a list of all the alive nodes
+// which is then used to serialize to JSON.
+func HandlerOwidsJSON(s *Services) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		j, err := getJSON(s)
+		if err != nil {
+			returnAPIError(s, w, err, http.StatusInternalServerError)
+			return
+		}
+		sendResponse(s, w, "application/json", j)
+	}
 }
 
-func (c *common) init() {
-	c.creators = make(map[string]*Creator)
-	c.mutex = &sync.Mutex{}
-}
-
-// GetCreators return a map of all the known creators keyed on domain.
-func (c *common) GetCreators() map[string]*Creator {
-	return c.creators
-}
-
-// getCreator takes a domain name and returns the associated creator. If a
-// creator does not exist then nil is returned.
-func (c *common) getCreator(domain string) (*Creator, error) {
-	return c.creators[domain], nil
+func getJSON(s *Services) ([]byte, error) {
+	j, err := json.Marshal(s.store.GetCreators())
+	if err != nil {
+		return nil, err
+	}
+	return j, nil
 }

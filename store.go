@@ -18,6 +18,7 @@ package owid
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"os"
 )
@@ -42,6 +43,9 @@ type Store interface {
 	// GetCreator returns the creator information for the domain.
 	GetCreator(domain string) (*Creator, error)
 
+	// GetCreators return a map of all the known creators keyed on domain.
+	GetCreators() map[string]*Creator
+
 	// setCreator inserts a new creator.
 	setCreator(c *Creator) error
 }
@@ -65,7 +69,7 @@ func NewStore(owidConfig Configuration) Store {
 			panic(errors.New("Either the AZURE_STORAGE_ACCOUNT or " +
 				"AZURE_STORAGE_ACCESS_KEY environment variable is not set"))
 		}
-		log.Printf("OWID: Using Azure Table Storage")
+		log.Printf("OWID:Using Azure Table Storage")
 		owidStore, err = NewAzure(
 			azureAccountName,
 			azureAccountKey)
@@ -73,19 +77,19 @@ func NewStore(owidConfig Configuration) Store {
 			panic(err)
 		}
 	} else if len(gcpProject) > 0 && (os == "" || os == "gcp") {
-		log.Printf("OWID: Using Google Firebase")
+		log.Printf("OWID:Using Google Firebase")
 		owidStore, err = NewFirebase(gcpProject)
 		if err != nil {
 			panic(err)
 		}
 	} else if len(owidFile) > 0 && (os == "" || os == "local") {
-		log.Printf("OWID: Using local storage")
+		log.Printf("OWID:Using local storage")
 		owidStore, err = NewLocalStore(owidFile)
 		if err != nil {
 			panic(err)
 		}
 	} else if len(awsEnabled) > 0 && (os == "" || os == "aws") {
-		log.Printf("OWID: Using AWS DynamoDB")
+		log.Printf("OWID:Using AWS DynamoDB")
 		owidStore, err = NewAWS()
 		if err != nil {
 			panic(err)
@@ -93,7 +97,21 @@ func NewStore(owidConfig Configuration) Store {
 	}
 
 	if owidStore == nil {
-		panic(errors.New("owid store not configured"))
+		panic(fmt.Errorf("OWID:no store has been configured.\r\n" +
+			"Provide details for store by specifying one or more sets of " +
+			"environment variables:\r\n" +
+			"(1) Azure Storage account details 'AZURE_STORAGE_ACCOUNT' & 'AZURE_STORAGE_ACCESS_KEY'\r\n" +
+			"(2) GCP project in 'GCP_PROJECT' \r\n" +
+			"(3) Local storage file paths in 'OWID_FILE'\r\n" +
+			"(4) AWS Dynamo DB by setting 'AWS_ENABLED' to true\r\n" +
+			"Refer to https://github.com/SWAN-community/owid-go/blob/main/README.md " +
+			"for specifics on setting up each storage solution"))
+	} else if owidConfig.Debug {
+
+		// If in debug more log the nodes at startup.
+		for _, o := range owidStore.GetCreators() {
+			log.Println(fmt.Sprintf("OWID:\t%s", o.Domain()))
+		}
 	}
 
 	return owidStore

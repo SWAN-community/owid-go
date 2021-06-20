@@ -17,6 +17,7 @@
 package owid
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 )
@@ -117,6 +118,33 @@ func (c *Creator) SubjectPublicKeyInfo() (string, error) {
 
 // Domain associated with the creator.
 func (c *Creator) Domain() string { return c.domain }
+
+// MarshalJSON marshals a node to JSON without having to expose the fields in
+// the node struct. This is achieved by converting a node to a map.
+func (c *Creator) MarshalJSON() ([]byte, error) {
+	return json.Marshal(map[string]interface{}{
+		"domain":     c.domain,
+		"privateKey": c.privateKey,
+		"publicKey":  c.publicKey,
+		"name":       c.name})
+}
+
+// UnmarshalJSON called by json.Unmarshall unmarshals a node from JSON and turns
+// it into a new node. As the node is marshalled to JSON by converting it to a
+// map, the unmarshalling from JSON needs to handle the type of each field
+// correctly.
+func (c *Creator) UnmarshalJSON(b []byte) error {
+	var d map[string]string
+	err := json.Unmarshal(b, &d)
+	if err != nil {
+		return err
+	}
+	c.domain = d["domain"]
+	c.privateKey = d["privateKey"]
+	c.publicKey = d["publicKey"]
+	c.name = d["name"]
+	return nil
+}
 
 func newCreator(
 	domain string,

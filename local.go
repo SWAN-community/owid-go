@@ -33,14 +33,6 @@ type Local struct {
 	common
 }
 
-// item is the internal JSON representation of a Creator.
-type item struct {
-	Domain     string
-	PrivateKey string
-	PublicKey  string
-	Name       string
-}
-
 // NewLocalStore creates a new instance of Local from a given file path.
 func NewLocalStore(file string) (*Local, error) {
 	var l Local
@@ -61,18 +53,7 @@ func (l *Local) setCreator(creator *Creator) error {
 	l.creators[creator.domain] = creator
 	l.mutex.Unlock()
 
-	cs := make(map[string]*item)
-
-	for k, v := range l.creators {
-		cs[k] = &item{
-			Domain:     v.domain,
-			PrivateKey: v.privateKey,
-			PublicKey:  v.publicKey,
-			Name:       v.name,
-		}
-	}
-
-	data, err := json.MarshalIndent(&cs, "", "\t")
+	data, err := json.MarshalIndent(&l.creators, "", "\t")
 	if err != nil {
 		return err
 	}
@@ -122,20 +103,15 @@ func (l *Local) refresh() error {
 // fetch creators reads the Creators from the persistent JSON files and
 // converts them from a map of storage items to a map of Creators.
 func (l *Local) fetchCreators() (map[string]*Creator, error) {
-	cis := make(map[string]*item)
 	cs := make(map[string]*Creator)
 	data, err := readLocalStore(l.file)
 	if err != nil {
 		return nil, err
 	}
 
-	err = json.Unmarshal(data, &cis)
+	err = json.Unmarshal(data, &cs)
 	if err != nil && len(data) > 0 {
 		return nil, err
-	}
-
-	for k, v := range cis {
-		cs[k] = newCreator(v.Domain, v.PrivateKey, v.PublicKey, v.Name)
 	}
 
 	return cs, nil
