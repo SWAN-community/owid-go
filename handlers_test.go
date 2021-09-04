@@ -205,6 +205,6 @@ func getServices() (*Services, error) {
 	c := NewConfig("appsettings.Test.json")
 	a := NewAccessSimple([]string{"key1", "key2"})
 	ts := newTestStore()
-	ts.newCreator(testDomain, testOrgName)
+	ts.addCreator(testDomain, testOrgName)
 	return NewServices(c, ts, a), nil
 }

@@ -23,11 +23,15 @@ import (
 )
 
 func TestOWIDVerify(t *testing.T) {
-	o, err := newOWID()
+	c, err := newTestCreator(testDomain, testOrgName)
 	if err != nil {
 		t.Fatal(err)
 	}
-	v, err := o.VerifyWithPublicKey(testPublicKey)
+	o, err := newOWID(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := o.VerifyWithPublicKey(c.publicKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +41,11 @@ func TestOWIDVerify(t *testing.T) {
 }
 
 func TestOWIDBase64(t *testing.T) {
-	o, err := newOWID()
+	c, err := newTestCreator(testDomain, testOrgName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := newOWID(c)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +63,11 @@ func TestOWIDBase64(t *testing.T) {
 }
 
 func TestOWIDString(t *testing.T) {
-	o, err := newOWID()
+	c, err := newTestCreator(testDomain, testOrgName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := newOWID(c)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +81,11 @@ func TestOWIDString(t *testing.T) {
 }
 
 func TestOWIDBase64CorruptShort(t *testing.T) {
-	o, err := newOWID()
+	c, err := newTestCreator(testDomain, testOrgName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := newOWID(c)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +100,11 @@ func TestOWIDBase64CorruptShort(t *testing.T) {
 }
 
 func TestOWIDBase64CorruptMiss(t *testing.T) {
-	o, err := newOWID()
+	c, err := newTestCreator(testDomain, testOrgName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := newOWID(c)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +119,11 @@ func TestOWIDBase64CorruptMiss(t *testing.T) {
 }
 
 func TestOWIDByteArrayCorruptReplace(t *testing.T) {
-	o, err := newOWID()
+	c, err := newTestCreator(testDomain, testOrgName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := newOWID(c)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +133,7 @@ func TestOWIDByteArrayCorruptReplace(t *testing.T) {
 	}
 	i := 0
 	for i < len(a) {
-		err = corrupt(a, i)
+		err = corrupt(c, a, i)
 		if err == nil {
 			t.Fatal(fmt.Errorf("corrupt byte array should result in error"))
 		}
@@ -117,8 +141,8 @@ func TestOWIDByteArrayCorruptReplace(t *testing.T) {
 	}
 }
 
-func newOWID() (*OWID, error) {
-	c, err := NewCryptoSignOnly(testPrivateKey)
+func newOWID(creator *Creator) (*OWID, error) {
+	c, err := NewCryptoSignOnly(creator.privateKey)
 	if err != nil {
 		return nil, err
 	}
@@ -131,13 +155,13 @@ func newOWID() (*OWID, error) {
 	return o, nil
 }
 
-func corrupt(a []byte, i int) error {
+func corrupt(creator *Creator, a []byte, i int) error {
 	a[i] = a[i] + 1
 	n, err := FromByteArray(a)
 	if err != nil {
 		return err
 	}
-	_, err = n.VerifyWithPublicKey(testPublicKey)
+	_, err = n.VerifyWithPublicKey(creator.publicKey)
 	return err
 }
 
