@@ -38,7 +38,7 @@ type Crypto struct {
 }
 
 // NewCrypto creates an new instance of the Crypto structure and generates
-//  a public / private key pair used to sign and verify OWIDs
+// a public / private key pair used to sign and verify OWIDs
 func NewCrypto() (*Crypto, error) {
 	var c Crypto
 	privateKey, err := rsa.GenerateKey(rand.Reader, 512)

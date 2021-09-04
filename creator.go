@@ -54,7 +54,9 @@ func (c *Creator) Sign(o *OWID, others ...*OWID) error {
 }
 
 // CreateOWIDandSign the OWID with the payload and signs the result.
-func (c *Creator) CreateOWIDandSign(payload []byte, others ...*OWID) (*OWID, error) {
+func (c *Creator) CreateOWIDandSign(
+	payload []byte,
+	others ...*OWID) (*OWID, error) {
 	o, err := c.CreateOWID(payload)
 	if err != nil {
 		return nil, err
