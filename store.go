@@ -20,7 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"os"
 )
 
 // Interface used for the storing of keys for signing, domains and organization
@@ -52,43 +51,39 @@ type Store interface {
 
 // NewStore returns a work implementation of the Store interface for the
 // configuration supplied.
-func NewStore(owidConfig Configuration) Store {
+func NewStore(c Configuration) Store {
 	var owidStore Store
 	var err error
 
-	azureAccountName, azureAccountKey, gcpProject, owidFile, awsEnabled, os :=
-		os.Getenv("AZURE_STORAGE_ACCOUNT"),
-		os.Getenv("AZURE_STORAGE_ACCESS_KEY"),
-		os.Getenv("GCP_PROJECT"),
-		os.Getenv("OWID_FILE"),
-		os.Getenv("AWS_ENABLED"),
-		os.Getenv("OWID_STORE")
-	if (len(azureAccountName) > 0 || len(azureAccountKey) > 0) &&
-		(os == "" || os == "azure") {
-		if len(azureAccountName) == 0 || len(azureAccountKey) == 0 {
+	if (len(c.AzureStorageAccount) > 0 || len(c.AzureStorageAccessKey) > 0) &&
+		(c.OwidStore == "" || c.OwidStore == "azure") {
+		if len(c.AzureStorageAccount) == 0 || len(c.AzureStorageAccessKey) == 0 {
 			panic(errors.New("Either the AZURE_STORAGE_ACCOUNT or " +
 				"AZURE_STORAGE_ACCESS_KEY environment variable is not set"))
 		}
 		log.Printf("OWID:Using Azure Table Storage")
 		owidStore, err = NewAzure(
-			azureAccountName,
-			azureAccountKey)
+			c.AzureStorageAccount,
+			c.AzureStorageAccessKey)
 		if err != nil {
 			panic(err)
 		}
-	} else if len(gcpProject) > 0 && (os == "" || os == "gcp") {
+	} else if len(c.GcpProject) > 0 &&
+		(c.OwidStore == "" || c.OwidStore == "gcp") {
 		log.Printf("OWID:Using Google Firebase")
-		owidStore, err = NewFirebase(gcpProject)
+		owidStore, err = NewFirebase(c.GcpProject)
 		if err != nil {
 			panic(err)
 		}
-	} else if len(owidFile) > 0 && (os == "" || os == "local") {
+	} else if len(c.OwidFile) > 0 &&
+		(c.OwidStore == "" || c.OwidStore == "local") {
 		log.Printf("OWID:Using local storage")
-		owidStore, err = NewLocalStore(owidFile)
+		owidStore, err = NewLocalStore(c.OwidFile)
 		if err != nil {
 			panic(err)
 		}
-	} else if len(awsEnabled) > 0 && (os == "" || os == "aws") {
+	} else if len(c.AwsEnabled) > 0 &&
+		(c.OwidStore == "" || c.OwidStore == "aws") {
 		log.Printf("OWID:Using AWS DynamoDB")
 		owidStore, err = NewAWS()
 		if err != nil {
@@ -106,7 +101,7 @@ func NewStore(owidConfig Configuration) Store {
 			"(4) AWS Dynamo DB by setting 'AWS_ENABLED' to true\r\n" +
 			"Refer to https://github.com/SWAN-community/owid-go/blob/main/README.md " +
 			"for specifics on setting up each storage solution"))
-	} else if owidConfig.Debug {
+	} else if c.Debug {
 
 		// If in debug more log the nodes at startup.
 		for _, o := range owidStore.GetCreators() {

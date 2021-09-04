@@ -202,7 +202,7 @@ func decompressAsString(
 	return string(b)
 }
 func getServices() (*Services, error) {
-	c := NewConfig("appsettings.Test.json")
+	c := NewConfig("appsettings.test.none.json")
 	a := NewAccessSimple([]string{"key1", "key2"})
 	ts := newTestStore()
 	ts.addCreator(testDomain, testOrgName)
