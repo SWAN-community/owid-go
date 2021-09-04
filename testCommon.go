@@ -50,40 +50,33 @@ type testStore struct {
 	common
 }
 
-func newTestStore() (*testStore, error) {
+// newTestStore creates a new test store and adds the domain 51degrees.com
+// as an OWID creator.
+func newTestStore() *testStore {
 	var ts testStore
-	return &ts, nil
+	ts.init()
+	return &ts
 }
 
 func (ts *testStore) GetCreator(domain string) (*Creator, error) {
-	var c Creator
-	c.domain = domain
-	c.name = testOrgName
-	c.privateKey = testPrivateKey
-	c.publicKey = testPublicKey
-	return &c, nil
+	return ts.creators[domain], nil
 }
 
 func (ts *testStore) setCreator(c *Creator) error {
+	ts.creators[c.domain] = c
 	return nil
 }
 
-func getNewOWID(s Store) (*OWID, error) {
-	c, err := s.GetCreator(testDomain)
+func (ts *testStore) newCreator(domain string, name string) error {
+	cry, err := NewCrypto()
 	if err != nil {
-		return nil, err
+		return err
 	}
-	cry, err := NewCryptoSignOnly(c.privateKey)
-	if err != nil {
-		return nil, err
-	}
-	o, err := NewOwid(testDomain, time.Now().UTC(), []byte(testPayload))
-	if err != nil {
-		return nil, err
-	}
-	err = o.Sign(cry, nil)
-	if err != nil {
-		return nil, err
-	}
-	return o, nil
+	c := newCreator(
+		domain,
+		cry.privateKeyToPemString(),
+		cry.publicKeyToPemString(),
+		name)
+	ts.setCreator(c)
+	return nil
 }

@@ -22,20 +22,6 @@ import (
 	"testing"
 )
 
-func newOWID() (*OWID, error) {
-	c, err := NewCryptoSignOnly(testPrivateKey)
-	if err != nil {
-		return nil, err
-	}
-	payload := []byte(testPayload)
-	o, err := NewOwid(testDomain, testDate, payload)
-	if err != nil {
-		return nil, err
-	}
-	o.Sign(c, nil)
-	return o, nil
-}
-
 func TestOWIDVerify(t *testing.T) {
 	o, err := newOWID()
 	if err != nil {
@@ -129,6 +115,20 @@ func TestOWIDByteArrayCorruptReplace(t *testing.T) {
 		}
 		i++
 	}
+}
+
+func newOWID() (*OWID, error) {
+	c, err := NewCryptoSignOnly(testPrivateKey)
+	if err != nil {
+		return nil, err
+	}
+	payload := []byte(testPayload)
+	o, err := NewOwid(testDomain, testDate, payload)
+	if err != nil {
+		return nil, err
+	}
+	o.Sign(c, nil)
+	return o, nil
 }
 
 func corrupt(a []byte, i int) error {
