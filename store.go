@@ -82,7 +82,7 @@ func NewStore(c Configuration) Store {
 		if err != nil {
 			panic(err)
 		}
-	} else if len(c.AwsEnabled) > 0 &&
+	} else if c.AwsEnabled &&
 		(c.OwidStore == "" || c.OwidStore == "aws") {
 		log.Printf("OWID:Using AWS DynamoDB")
 		owidStore, err = NewAWS()

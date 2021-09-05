@@ -17,26 +17,22 @@
 package owid
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
-	"os"
-	"reflect"
+
+	"github.com/SWAN-community/config-go"
 )
 
 // Configuration details from appsettings.json for access to the AWS or Azure
 // storage.
 type Configuration struct {
-	Scheme                string `json:"scheme"` // The scheme to use for requests
-	BackgroundColor       string `json:"backgroundColor"`
-	MessageColor          string `json:"messageColor"`
-	Debug                 bool   `json:"debug"`
-	AzureStorageAccount   string `json:"azureStorageAccount"`
-	AzureStorageAccessKey string `json:"azureStorageAccessKey"`
-	GcpProject            string `json:"gcpProject"`
-	OwidFile              string `json:"owidFile"`
-	AwsEnabled            string `json:"awsEnabled"`
-	OwidStore             string `json:"owidStore"`
+	config.Common   `mapstructure:",squash"`
+	Scheme          string `mapstructure:"scheme"` // The scheme to use for requests
+	BackgroundColor string `mapstructure:"backgroundColor"`
+	MessageColor    string `mapstructure:"messageColor"`
+	Debug           bool   `mapstructure:"debug"`
+	OwidFile        string `mapstructure:"owidFile"`
+	OwidStore       string `mapstructure:"owidStore"`
 }
 
 // NewConfig creates a new instance of configuration from the file provided. If
@@ -44,18 +40,9 @@ type Configuration struct {
 // environment is checked to see if there is corresponding value present there.
 func NewConfig(file string) Configuration {
 	var c Configuration
-	configFile, err := os.Open(file)
+	err := config.LoadConfig([]string{"."}, file, &c)
 	if err != nil {
 		fmt.Println(err.Error())
-	} else {
-		defer configFile.Close()
-		json.NewDecoder(configFile).Decode(&c)
-		c.setFromEnvironment("AZURE_STORAGE_ACCOUNT", "AzureStorageAccount")
-		c.setFromEnvironment("AZURE_STORAGE_ACCESS_KEY", "AzureStorageAccessKey")
-		c.setFromEnvironment("GCP_PROJECT", "GcpProject")
-		c.setFromEnvironment("OWID_FILE", "OwidFile")
-		c.setFromEnvironment("AWS_ENABLED", "AwsEnabled")
-		c.setFromEnvironment("OWID_STORE", "OwidStore")
 	}
 	return c
 }
@@ -79,17 +66,4 @@ func (c *Configuration) Validate() error {
 		}
 	}
 	return err
-}
-
-// setFromEnvironment checks if the k field in the configuration has a value.
-// If it doesn't then it checks the environment variables to see if they have
-// a value for the key e. If so then that value is used in the configuration.
-func (c *Configuration) setFromEnvironment(e string, k string) {
-	v := reflect.ValueOf(c).Elem()
-	if v.FieldByName(k).String() == "" {
-		ev := os.Getenv(e)
-		if ev != "" {
-			v.FieldByName(k).SetString(ev)
-		}
-	}
 }
