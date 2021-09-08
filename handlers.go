@@ -26,7 +26,7 @@ import (
 // AddHandlers to the http default mux for shared web state.
 func AddHandlers(s *Services) {
 	http.HandleFunc("/owid/register", HandlerRegister(s))
-	for i := owidVersion1; i <= owidVersion2; i++ {
+	for i := owidVersion1; i <= owidVersion3; i++ {
 		b := fmt.Sprintf("/owid/api/v%d/", i)
 		http.HandleFunc(b+"public-key", HandlerPublicKey(s))
 		http.HandleFunc(b+"creator", HandlerCreator(s))

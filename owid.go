@@ -30,6 +30,7 @@ const (
 	owidEmpty    byte = 0
 	owidVersion1 byte = 1
 	owidVersion2 byte = 2
+	owidVersion3 byte = 3
 )
 
 var client *http.Client
@@ -50,7 +51,7 @@ type OWID struct {
 // Age returns the number of complete minutes that have elapsed since the OWID
 // was created. The granularity is to the nearest minute.
 func (o *OWID) Age() int {
-	return int(time.Now().Sub(o.Date).Minutes())
+	return int(time.Since(o.Date).Minutes())
 }
 
 // PayloadAsString converts the payload to a string.
@@ -74,7 +75,7 @@ func NewOwid(
 	date time.Time,
 	payload []byte) (*OWID, error) {
 	var o OWID
-	o.Version = owidVersion2
+	o.Version = owidVersion3
 	o.Domain = domain
 	o.Date = date
 	o.Payload = payload
@@ -216,8 +217,10 @@ func FromBuffer(b *bytes.Buffer) (*OWID, error) {
 		fromBuffer(b, &o)
 	case owidVersion2:
 		fromBuffer(b, &o)
+	case owidVersion3:
+		fromBuffer(b, &o)
 	default:
-		return nil, fmt.Errorf("Version '%d' not supported", o.Version)
+		return nil, fmt.Errorf("version '%d' not supported", o.Version)
 	}
 	return &o, nil
 }
@@ -240,11 +243,11 @@ func FromBase64(value string) (*OWID, error) {
 // If the key is missing or the string is not valid then an error is returned.
 func FromForm(q *url.Values, n string) (*OWID, error) {
 	if q.Get(n) == "" {
-		return nil, fmt.Errorf("Key '%s' missing from form", n)
+		return nil, fmt.Errorf("key '%s' missing from form", n)
 	}
 	o, err := FromBase64(q.Get(n))
 	if err != nil {
-		return nil, fmt.Errorf("Key '%s' %s", n, err.Error())
+		return nil, fmt.Errorf("key '%s' %s", n, err.Error())
 	}
 	return o, nil
 }
@@ -257,13 +260,11 @@ func (o *OWID) dataForCrypto(others []*OWID) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if others != nil {
-		for _, a := range others {
-			if a != nil {
-				err = a.ToBuffer(&f)
-				if err != nil {
-					return nil, err
-				}
+	for _, a := range others {
+		if a != nil {
+			err = a.ToBuffer(&f)
+			if err != nil {
+				return nil, err
 			}
 		}
 	}

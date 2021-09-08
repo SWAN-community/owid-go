@@ -57,7 +57,10 @@ func HandlerRegister(s *Services) http.HandlerFunc {
 
 		// If the form data is valid then store the new node.
 		if d.NameError == "" {
-			storeCreator(s, &d)
+			err := storeCreator(s, &d)
+			if err != nil {
+				returnServerError(s, w, err)
+			}
 		}
 
 		// Return the HTML page.
@@ -65,18 +68,32 @@ func HandlerRegister(s *Services) http.HandlerFunc {
 	}
 }
 
-func storeCreator(s *Services, d *Register) {
+func storeCreator(s *Services, d *Register) error {
 
 	// Create the new node ready to have it's secret added and stored.
 	cry, err := NewCrypto()
+	if err != nil {
+		d.Error = err.Error()
+		return err
+	}
+	privateKey, err := cry.privateKeyToPemString()
+	if err != nil {
+		d.Error = err.Error()
+		return err
+	}
+	publicKey, err := cry.publicKeyToPemString()
+	if err != nil {
+		d.Error = err.Error()
+		return err
+	}
 	c := newCreator(
 		d.Domain,
-		cry.privateKeyToPemString(),
-		cry.publicKeyToPemString(),
+		privateKey,
+		publicKey,
 		d.Name)
 	if err != nil {
 		d.Error = err.Error()
-		return
+		return err
 	}
 
 	// Store the node and it successful mark the registration process as
@@ -84,7 +101,10 @@ func storeCreator(s *Services, d *Register) {
 	err = s.store.setCreator(c)
 	if err != nil {
 		d.Error = err.Error()
+		return err
 	} else {
 		d.ReadOnly = true
 	}
+
+	return nil
 }

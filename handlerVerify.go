@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 )
 
 type verify struct {
@@ -45,7 +46,7 @@ func HandlerVerify(s *Services) http.HandlerFunc {
 			return
 		}
 		v.Valid, err = c.Verify(o, p)
-		if err != nil && err.Error() != "crypto/rsa: verification error" {
+		if err != nil && strings.Contains(err.Error(), "verification error") {
 			returnAPIError(s, w, err, http.StatusInternalServerError)
 			return
 		}

@@ -52,10 +52,18 @@ func newTestCreator(domain string, name string) (*Creator, error) {
 	if err != nil {
 		return nil, err
 	}
+	privateKey, err := cry.privateKeyToPemString()
+	if err != nil {
+		return nil, err
+	}
+	publicKey, err := cry.publicKeyToPemString()
+	if err != nil {
+		return nil, err
+	}
 	c := newCreator(
 		domain,
-		cry.privateKeyToPemString(),
-		cry.publicKeyToPemString(),
+		privateKey,
+		publicKey,
 		name)
 	return c, nil
 }

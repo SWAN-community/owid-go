@@ -38,14 +38,12 @@ func HandlerPublicKey(s *Services) http.HandlerFunc {
 		switch r.Form.Get("format") {
 		case "pkcs":
 			p = c.publicKey
-			break
 		case "spki":
 			p, err = c.SubjectPublicKeyInfo()
 			break
 		default:
 			err = fmt.Errorf(
-				"Format parameter 'spki' or 'pkcs' must be provided")
-			break
+				"format parameter 'spki' or 'pkcs' must be provided")
 		}
 		if err != nil {
 			returnAPIError(s, w, err, http.StatusInternalServerError)

@@ -17,13 +17,15 @@
 package owid
 
 import (
-	"crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"fmt"
+	"math/big"
 )
 
 /**
@@ -33,28 +35,33 @@ import (
 
 // Crypto structure containing the public and private keys
 type Crypto struct {
-	publicKey  *rsa.PublicKey
-	privateKey *rsa.PrivateKey
+	publicKey  *ecdsa.PublicKey
+	privateKey *ecdsa.PrivateKey
 }
 
 // NewCrypto creates an new instance of the Crypto structure and generates
 // a public / private key pair used to sign and verify OWIDs
 func NewCrypto() (*Crypto, error) {
 	var c Crypto
-	privateKey, err := rsa.GenerateKey(rand.Reader, 512)
+	k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, err
 	}
-	c.publicKey = &privateKey.PublicKey
-	c.privateKey = privateKey
+	c.publicKey = &k.PublicKey
+	c.privateKey = k
 	return &c, nil
 }
 
 // NewCryptoSignOnly creates a new instance of the Crypto structure for signing
-// OWIDs only.
-func NewCryptoSignOnly(private string) (*Crypto, error) {
+// OWIDs only from the PEM provided.
+// privatePem PEM format non password protected ECDSA private PEM key.
+func NewCryptoSignOnly(privatePem string) (*Crypto, error) {
 	var c Crypto
-	privateKey, err := convertBytesToPrivateKey([]byte(private))
+	block, _ := pem.Decode([]byte(privatePem))
+	if block == nil {
+		return nil, fmt.Errorf("not a valid PEM key")
+	}
+	privateKey, err := x509.ParseECPrivateKey(block.Bytes)
 	if err != nil {
 		return nil, err
 	}
@@ -63,32 +70,39 @@ func NewCryptoSignOnly(private string) (*Crypto, error) {
 }
 
 // NewCryptoVerifyOnly creates a new instance of the Crypto structure
-// for Verifying OWIDs only.
-func NewCryptoVerifyOnly(public string) (*Crypto, error) {
+// for Verifying OWIDs only from the PEM key.
+// publicPemKey PEM format ECDSA public PEM key.
+func NewCryptoVerifyOnly(publicPemKey string) (*Crypto, error) {
 	var c Crypto
-	publicKey, err := convertBytesToPublicKey([]byte(public))
+	block, _ := pem.Decode([]byte(publicPemKey))
+	if block == nil {
+		return nil, fmt.Errorf("not a valid PEM key")
+	}
+	publicKey, err := x509.ParsePKIXPublicKey(block.Bytes)
 	if err != nil {
 		return nil, err
 	}
-	c.publicKey = publicKey
+	c.publicKey = publicKey.(*ecdsa.PublicKey)
 	return &c, nil
 }
 
-//SignByteArray signs the byte array with the public key of the crypto provider.
+// SignByteArray signs the byte array with the private key of the crypto
+// provider.
 func (c *Crypto) SignByteArray(data []byte) ([]byte, error) {
 	if c.privateKey == nil && c.publicKey != nil {
 		return nil, errors.New(
-			"This instance of Crypto cannot be used to generate a signature")
+			"instance of Crypto cannot be used to generate a signature")
 	}
 	h := sha256.Sum256(data)
-	signature, err := rsa.SignPKCS1v15(
+	r, s, err := ecdsa.Sign(
 		rand.Reader,
 		c.privateKey,
-		crypto.SHA256,
 		h[:])
 	if err != nil {
 		return nil, err
 	}
+	signature := r.Bytes()
+	signature = append(signature, s.Bytes()...)
 	return signature, nil
 }
 
@@ -96,18 +110,17 @@ func (c *Crypto) SignByteArray(data []byte) ([]byte, error) {
 func (c *Crypto) VerifyByteArray(data []byte, sig []byte) (bool, error) {
 	if c.publicKey == nil {
 		return false, errors.New(
-			"This instance of Crypto cannot be used to verify a signature")
+			"instance of Crypto cannot be used to verify a signature")
 	}
 	h := sha256.Sum256(data)
-	err := rsa.VerifyPKCS1v15(
+	var r, s big.Int
+	r.SetBytes(sig[:32])
+	s.SetBytes(sig[32:])
+	return ecdsa.Verify(
 		c.publicKey,
-		crypto.SHA256,
 		h[:],
-		sig)
-	if err != nil {
-		return false, err
-	}
-	return true, nil
+		&r,
+		&s), nil
 }
 
 // getSubjectPublicKeyInfo returns the public key in SPKI format for use with
@@ -121,89 +134,28 @@ func (c *Crypto) getSubjectPublicKeyInfo() (string, error) {
 	return string(
 		pem.EncodeToMemory(
 			&pem.Block{
-				Type:  "RSA PUBLIC KEY",
+				Type:  "PUBLIC KEY",
 				Bytes: spki,
 			},
 		),
 	), nil
 }
 
-func (c Crypto) publicKeyToPemString() string {
+func (c Crypto) publicKeyToPemString() (string, error) {
+	return c.getSubjectPublicKeyInfo()
+}
+
+func (c Crypto) privateKeyToPemString() (string, error) {
+	k, err := x509.MarshalECPrivateKey(c.privateKey)
+	if err != nil {
+		return "", err
+	}
 	return string(
 		pem.EncodeToMemory(
 			&pem.Block{
-				Type:  "RSA PUBLIC KEY",
-				Bytes: x509.MarshalPKCS1PublicKey(c.publicKey),
+				Type:  "EC PRIVATE KEY",
+				Bytes: k,
 			},
 		),
-	)
-}
-
-func (c Crypto) privateKeyToPemString() string {
-	return string(
-		pem.EncodeToMemory(
-			&pem.Block{
-				Type:  "RSA PRIVATE KEY",
-				Bytes: x509.MarshalPKCS1PrivateKey(c.privateKey),
-			},
-		),
-	)
-}
-
-func cipherToPemString(cipher []byte) string {
-	return string(
-		pem.EncodeToMemory(
-			&pem.Block{
-				Type:  "MESSAGE",
-				Bytes: cipher,
-			},
-		),
-	)
-}
-
-func decodePEMBlockBytes(keyBytes []byte) ([]byte, error) {
-	var err error
-
-	block, _ := pem.Decode(keyBytes)
-	blockBytes := block.Bytes
-	ok := x509.IsEncryptedPEMBlock(block)
-
-	if ok {
-		blockBytes, err = x509.DecryptPEMBlock(block, nil)
-		if err != nil {
-			return nil, err
-		}
-
-		return blockBytes, nil
-	}
-
-	return blockBytes, nil
-}
-
-func convertBytesToPrivateKey(keyBytes []byte) (*rsa.PrivateKey, error) {
-	blockBytes, err := decodePEMBlockBytes(keyBytes)
-	if err != nil {
-		return nil, err
-	}
-
-	privateKey, err := x509.ParsePKCS1PrivateKey(blockBytes)
-	if err != nil {
-		return nil, err
-	}
-
-	return privateKey, nil
-}
-
-func convertBytesToPublicKey(keyBytes []byte) (*rsa.PublicKey, error) {
-	blockBytes, err := decodePEMBlockBytes(keyBytes)
-	if err != nil {
-		return nil, err
-	}
-
-	publicKey, err := x509.ParsePKCS1PublicKey(blockBytes)
-	if err != nil {
-		return nil, err
-	}
-
-	return publicKey, nil
+	), nil
 }

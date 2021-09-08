@@ -28,13 +28,33 @@ func newCrypto() (*Crypto, error) {
 	return c, nil
 }
 
+func TestInvalidPublicPem(t *testing.T) {
+	_, err := NewCryptoVerifyOnly("invalid")
+	if err == nil {
+		t.Fatal("bad public PEM should error")
+	}
+}
+
+func TestInvalidPrivatePem(t *testing.T) {
+	_, err := NewCryptoSignOnly("invalid")
+	if err == nil {
+		t.Fatal("bad private PEM should error")
+	}
+}
+
 func TestCrypto(t *testing.T) {
 	c, err := newCrypto()
 	if err != nil {
 		t.Fatal(err)
 	}
-	privateKey := c.privateKeyToPemString()
-	publicKey := c.publicKeyToPemString()
+	privateKey, err := c.privateKeyToPemString()
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicKey, err := c.publicKeyToPemString()
+	if err != nil {
+		t.Fatal(err)
+	}
 	s, err := NewCryptoSignOnly(privateKey)
 	if err != nil {
 		t.Fatal(err)

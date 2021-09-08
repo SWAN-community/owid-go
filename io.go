@@ -26,7 +26,7 @@ import (
 // The base year for all dates encoded with the io time methods.
 var ioDateBase = time.Date(2020, time.Month(1), 1, 0, 0, 0, 0, time.UTC)
 
-// The length of an OWID signature in bytes.
+// The maximum length of an OWID signature in bytes.
 const signatureLength = 64
 
 func readString(b *bytes.Buffer) (string, error) {
@@ -41,7 +41,7 @@ func readSignature(b *bytes.Buffer) ([]byte, error) {
 	v := b.Next(int(signatureLength))
 	if len(v) != signatureLength {
 		return nil, fmt.Errorf(
-			"Signature length '%d' not compaitable with '%d' OWID signature "+
+			"signature length '%d' not compaitable with '%d' OWID signature "+
 				"length",
 			len(v),
 			signatureLength)
@@ -52,7 +52,7 @@ func readSignature(b *bytes.Buffer) ([]byte, error) {
 func writeSignature(b *bytes.Buffer, v []byte) error {
 	if len(v) != signatureLength {
 		return fmt.Errorf(
-			"Provided signature length '%d' not compaitable with '%d' "+
+			"provided signature length '%d' not compaitable with '%d' "+
 				"OWID signature length",
 			len(v),
 			signatureLength)
@@ -81,7 +81,7 @@ func writeByteArrayNoLength(b *bytes.Buffer, v []byte) error {
 	if err == nil {
 		if l != len(v) {
 			return fmt.Errorf(
-				"Mismatched lengths '%d' and '%d'",
+				"mismatched lengths '%d' and '%d'",
 				l,
 				len(v))
 		}
@@ -111,6 +111,8 @@ func readDate(b *bytes.Buffer, v byte) (time.Time, error) {
 	case owidVersion1:
 		return readDateV1(b)
 	case owidVersion2:
+		return readDateV2(b)
+	case owidVersion3:
 		return readDateV2(b)
 	default:
 		return time.Time{}, fmt.Errorf("Date version '%d' is invalid", v)
@@ -144,8 +146,10 @@ func writeDate(b *bytes.Buffer, t time.Time, v byte) error {
 		return writeDateV1(b, t)
 	case owidVersion2:
 		return writeDateV2(b, t)
+	case owidVersion3:
+		return writeDateV2(b, t)
 	default:
-		return fmt.Errorf("Date version '%d' is invalid", v)
+		return fmt.Errorf("date version '%d' is invalid", v)
 	}
 }
 
@@ -189,7 +193,7 @@ func writeUint32(b *bytes.Buffer, i uint32) error {
 	if err == nil {
 		if l != len(v) {
 			return fmt.Errorf(
-				"Mismatched lengths '%d' and '%d'",
+				"mismatched lengths '%d' and '%d'",
 				l,
 				len(v))
 		}
