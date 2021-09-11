@@ -29,6 +29,10 @@ func HandlerPublicKey(s *Services) http.HandlerFunc {
 			returnAPIError(s, w, err, http.StatusInternalServerError)
 			return
 		}
+		if c == nil {
+			returnAPIError(s, w, err, http.StatusInternalServerError)
+			return
+		}
 		err = r.ParseForm()
 		if err != nil {
 			returnAPIError(s, w, err, http.StatusInternalServerError)
