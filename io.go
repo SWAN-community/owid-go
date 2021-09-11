@@ -28,6 +28,7 @@ var ioDateBase = time.Date(2020, time.Month(1), 1, 0, 0, 0, 0, time.UTC)
 
 // The maximum length of an OWID signature in bytes.
 const signatureLength = 64
+const halfSignatureLength = signatureLength / 2
 
 func readString(b *bytes.Buffer) (string, error) {
 	s, err := b.ReadBytes(0)

@@ -101,8 +101,13 @@ func (c *Crypto) SignByteArray(data []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	signature := r.Bytes()
-	signature = append(signature, s.Bytes()...)
+	signature := make([]byte, signatureLength)
+	for i, b := range r.Bytes() {
+		signature[i] = b
+	}
+	for i, b := range s.Bytes() {
+		signature[i+halfSignatureLength] = b
+	}
 	return signature, nil
 }
 
