@@ -18,11 +18,13 @@ package owid
 
 // Register contains HTML template data used to register a creator
 type Register struct {
-	Services      *Services
-	Domain        string
-	Name          string
-	Error         string
-	NameError     string
-	ReadOnly      bool
-	DisplayErrors bool
+	Services         *Services
+	Domain           string
+	Name             string
+	ContractURL      string
+	Error            string
+	NameError        string
+	ContractURLError string
+	ReadOnly         bool
+	DisplayErrors    bool
 }

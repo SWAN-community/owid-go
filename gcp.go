@@ -39,10 +39,11 @@ type Firebase struct {
 
 // Fireitem is the Firestore table item representation of a Creator
 type Fireitem struct {
-	Domain     string
-	PrivateKey string
-	PublicKey  string
-	Name       string
+	Domain      string
+	PrivateKey  string
+	PublicKey   string
+	Name        string
+	ContractURL string
 }
 
 // NewFirebase creates a new instance of the Firebase structure
@@ -72,10 +73,11 @@ func NewFirebase(project string) (*Firebase, error) {
 func (f *Firebase) setCreator(creator *Creator) error {
 	ctx := context.Background()
 	c := Fireitem{
-		Domain:     creator.domain,
-		PrivateKey: creator.privateKey,
-		PublicKey:  creator.publicKey,
-		Name:       creator.name,
+		Domain:      creator.domain,
+		PrivateKey:  creator.privateKey,
+		PublicKey:   creator.publicKey,
+		Name:        creator.name,
+		ContractURL: creator.contractURL,
 	}
 	a, err := f.client.Collection(creatorsTableName).Doc(creator.domain).Set(ctx, c)
 	fmt.Println(a)
@@ -135,7 +137,8 @@ func (f *Firebase) fetchCreators() (map[string]*Creator, error) {
 			item.Domain,
 			item.PrivateKey,
 			item.PublicKey,
-			item.Name)
+			item.Name,
+			item.ContractURL)
 	}
 	return cs, nil
 }

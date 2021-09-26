@@ -18,6 +18,7 @@ package owid
 
 import (
 	"net/http"
+	"net/url"
 )
 
 // HandlerRegister - Handler for the registering of a domain.
@@ -47,12 +48,19 @@ func HandlerRegister(s *Services) http.HandlerFunc {
 		}
 		d.DisplayErrors = len(r.Form) > 0
 
-		// Get the network information.
+		// Get the OWID creator legal name.
 		d.Name = r.FormValue("name")
 		if len(d.Name) <= 5 {
 			d.NameError = "Name must be longer than 5 characters"
 		} else if len(d.Name) > 20 {
 			d.NameError = "Name can not be longer than 20 characters"
+		}
+
+		// Get the OWID creater contract URL use for the creation of data.
+		d.ContractURL = r.FormValue("contractURL")
+		_, err = url.Parse(d.ContractURL)
+		if err != nil {
+			d.ContractURLError = err.Error()
 		}
 
 		// If the form data is valid then store the new node.
@@ -90,7 +98,8 @@ func storeCreator(s *Services, d *Register) error {
 		d.Domain,
 		privateKey,
 		publicKey,
-		d.Name)
+		d.Name,
+		d.ContractURL)
 	if err != nil {
 		d.Error = err.Error()
 		return err

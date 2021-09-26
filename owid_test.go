@@ -23,7 +23,7 @@ import (
 )
 
 func TestOWIDVerify(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName)
+	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func TestOWIDVerify(t *testing.T) {
 }
 
 func TestOWIDBase64(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName)
+	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestOWIDBase64(t *testing.T) {
 }
 
 func TestOWIDString(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName)
+	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestOWIDString(t *testing.T) {
 }
 
 func TestOWIDBase64CorruptShort(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName)
+	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestOWIDBase64CorruptShort(t *testing.T) {
 }
 
 func TestOWIDBase64CorruptMiss(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName)
+	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestOWIDBase64CorruptMiss(t *testing.T) {
 }
 
 func TestOWIDByteArrayCorruptReplace(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName)
+	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
 	if err != nil {
 		t.Fatal(err)
 	}

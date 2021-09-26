@@ -34,6 +34,7 @@ const (
 	publicKeyFieldName            = "publicKey"
 	privateKeyFieldName           = "privateKey"
 	nameFieldName                 = "name"
+	contractURLFieldName          = "contractURL"
 )
 
 // Store is an interface for accessing persistent data.

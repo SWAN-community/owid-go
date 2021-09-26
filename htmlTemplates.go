@@ -66,6 +66,19 @@ var registerTemplate = newHTMLTemplate("register", `
             </td>
         </tr>
         <tr>
+            <td>
+                <p><label for="name">Contract URL</label></p>
+            </td>
+            <td>
+                <p><input type="text" maxlength="200" id="contractURL" name="contractURL" value="{{ .ContractURL }}" {{ if .ReadOnly }}disabled{{ end }}></p>
+            </td>
+            <td>
+                {{ if .DisplayErrors }}
+                <p>{{ .ContractURLError }}</p>
+                {{ end }}
+            </td>
+        </tr>
+        <tr>
             <td colspan="3">
                 {{ if .DisplayErrors }}
                 <p>{{ .Error }}</p>

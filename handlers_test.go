@@ -28,8 +28,9 @@ import (
 )
 
 const (
-	registerDomain = testDomain + " register"
-	registerName   = testOrgName + "register"
+	registerDomain      = testDomain + " register"
+	registerName        = testOrgName + "register"
+	registerContractURL = "https://test.com/" + testOrgName
 )
 
 // TestRegisterHandler uses the HTTP handler to add a new domain to the OWID
@@ -133,7 +134,7 @@ func TestCreatorHandler(t *testing.T) {
 	}
 
 	// Check no additional information has been returned.
-	if len(d) != 3 {
+	if len(d) != 4 {
 		t.Errorf("too many keys returned")
 		return
 	}
@@ -205,6 +206,6 @@ func getServices() (*Services, error) {
 	c := NewConfig("appsettings.test.none.json")
 	a := NewAccessSimple([]string{"key1", "key2"})
 	ts := newTestStore()
-	ts.addCreator(testDomain, testOrgName)
+	ts.addCreator(testDomain, testOrgName, registerContractURL)
 	return NewServices(c, ts, a), nil
 }

@@ -131,7 +131,8 @@ func (a *Azure) fetchCreators() (map[string]*Creator, error) {
 			i.RowKey,
 			i.Properties[privateKeyFieldName].(string),
 			i.Properties[publicKeyFieldName].(string),
-			i.Properties[nameFieldName].(string))
+			i.Properties[nameFieldName].(string),
+			i.Properties[contractURLFieldName].(string))
 	}
 
 	return cs, err

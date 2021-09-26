@@ -47,7 +47,10 @@ func (ts *testStore) setCreator(c *Creator) error {
 	return nil
 }
 
-func newTestCreator(domain string, name string) (*Creator, error) {
+func newTestCreator(
+	domain string,
+	name string,
+	contractURL string) (*Creator, error) {
 	cry, err := NewCrypto()
 	if err != nil {
 		return nil, err
@@ -64,12 +67,16 @@ func newTestCreator(domain string, name string) (*Creator, error) {
 		domain,
 		privateKey,
 		publicKey,
-		name)
+		name,
+		contractURL)
 	return c, nil
 }
 
-func (ts *testStore) addCreator(domain string, name string) error {
-	c, err := newTestCreator(domain, name)
+func (ts *testStore) addCreator(
+	domain string,
+	name string,
+	contractURL string) error {
+	c, err := newTestCreator(domain, name, contractURL)
 	if err != nil {
 		return err
 	}

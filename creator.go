@@ -24,12 +24,13 @@ import (
 
 // Creator of Open Web Ids and immutable data.
 type Creator struct {
-	domain     string // The registered domain name and key fields
-	privateKey string
-	publicKey  string
-	name       string // The name of the entity associated with the domain
-	sign       *Crypto
-	verify     *Crypto
+	domain      string // The registered domain name and key fields
+	privateKey  string
+	publicKey   string
+	name        string // The name of the entity associated with the domain
+	contractURL string // URL with the T&Cs associated with the creation of data
+	sign        *Crypto
+	verify      *Crypto
 }
 
 // CreateOWID returns a new unsigned OWID from the creator containing the
@@ -42,7 +43,7 @@ func (c *Creator) CreateOWID(payload []byte) (*OWID, error) {
 func (c *Creator) Sign(o *OWID, others ...*OWID) error {
 	if c.domain != o.Domain {
 		return fmt.Errorf(
-			"Can't use creator '%s' to sign OWID for domain '%s'",
+			"can't use creator '%s' to sign OWID for domain '%s'",
 			c.domain,
 			o.Domain)
 	}
@@ -125,10 +126,11 @@ func (c *Creator) Domain() string { return c.domain }
 // the node struct. This is achieved by converting a node to a map.
 func (c *Creator) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]interface{}{
-		"domain":     c.domain,
-		"privateKey": c.privateKey,
-		"publicKey":  c.publicKey,
-		"name":       c.name})
+		"domain":       c.domain,
+		"privateKey":   c.privateKey,
+		"publicKey":    c.publicKey,
+		"name":         c.name,
+		"contractURL:": c.contractURL})
 }
 
 // UnmarshalJSON called by json.Unmarshall unmarshals a node from JSON and turns
@@ -145,6 +147,7 @@ func (c *Creator) UnmarshalJSON(b []byte) error {
 	c.privateKey = d["privateKey"]
 	c.publicKey = d["publicKey"]
 	c.name = d["name"]
+	c.contractURL = d["contractURL"]
 	return nil
 }
 
@@ -152,11 +155,13 @@ func newCreator(
 	domain string,
 	privateKey string,
 	publicKey string,
-	name string) *Creator {
+	name string,
+	contractURL string) *Creator {
 	var c Creator
 	c.domain = domain
 	c.privateKey = privateKey
 	c.publicKey = publicKey
 	c.name = name
+	c.contractURL = contractURL
 	return &c
 }

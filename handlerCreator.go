@@ -29,6 +29,7 @@ type PublicCreator struct {
 	Domain        string `json:"domain"`        // The domain that the name and key relate to
 	Name          string `json:"name"`          // Common name of the creator
 	PublicKeySPKI string `json:"publicKeySPKI"` // The public key in SPKI form
+	ContractURL   string `json:"contractURL"`   // URL with the T&Cs associated with the creation of the data in the OWID
 }
 
 // HandlerCreator Returns the public information associated with the creator.
@@ -63,5 +64,6 @@ func publicCreator(c *Creator) (*PublicCreator, error) {
 	}
 	p.Domain = c.domain
 	p.Name = c.name
+	p.ContractURL = c.contractURL
 	return &p, nil
 }

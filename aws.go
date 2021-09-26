@@ -46,6 +46,7 @@ type Item struct {
 	PrivateKey  string
 	PublicKey   string
 	Name        string
+	ContractURL string
 }
 
 // NewAWS creates a new instance of the AWS structure
@@ -83,7 +84,8 @@ func (a *AWS) setCreator(c *Creator) error {
 		c.domain,
 		c.privateKey,
 		c.publicKey,
-		c.name}
+		c.name,
+		c.contractURL}
 
 	av, err := dynamodbattribute.MarshalMap(item)
 	if err != nil {
@@ -154,7 +156,8 @@ func (a *AWS) getCreatorDirect(domain string) (*Creator, error) {
 		item.Domain,
 		item.PrivateKey,
 		item.PublicKey,
-		item.Name)
+		item.Name,
+		item.ContractURL)
 	return c, nil
 }
 
@@ -278,7 +281,8 @@ func (a *AWS) fetchCreators() (map[string]*Creator, error) {
 			item.Domain,
 			item.PrivateKey,
 			item.PublicKey,
-			item.Name)
+			item.Name,
+			item.ContractURL)
 	}
 
 	return cs, nil
