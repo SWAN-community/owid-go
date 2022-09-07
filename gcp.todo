@@ -16,6 +16,7 @@
 
 package owid
 
+// cspell:ignore firestore Fireitem
 import (
 	"context"
 	"fmt"
@@ -32,12 +33,12 @@ import (
 
 // Firebase is a implementation of owid.Store for GCP's Firebase.
 type Firebase struct {
+	storeBase
 	timestamp time.Time         // The last time the maps were refreshed
 	client    *firestore.Client // Firebase app
-	common
 }
 
-// Fireitem is the Firestore table item representation of a Creator
+// Fireitem is the Firestore table item representation of a Signer
 type Fireitem struct {
 	Domain      string
 	PrivateKey  string
@@ -54,6 +55,9 @@ func NewFirebase(project string) (*Firebase, error) {
 	conf := &firebase.Config{ProjectID: project}
 
 	app, err := firebase.NewApp(ctx, conf)
+	if err != nil {
+		return nil, err
+	}
 
 	client, err := app.Firestore(ctx)
 	if err != nil {
@@ -70,7 +74,7 @@ func NewFirebase(project string) (*Firebase, error) {
 	return &f, nil
 }
 
-func (f *Firebase) setCreator(creator *Creator) error {
+func (f *Firebase) addSigner(creator *Signer) error {
 	ctx := context.Background()
 	c := Fireitem{
 		Domain:      creator.domain,
@@ -84,10 +88,10 @@ func (f *Firebase) setCreator(creator *Creator) error {
 	return err
 }
 
-// GetCreator gets creator for domain from internal map, updating the internal
+// GetSigner gets creator for domain from internal map, updating the internal
 // map if the creator is not in the map.
-func (f *Firebase) GetCreator(domain string) (*Creator, error) {
-	c, err := f.common.getCreator(domain)
+func (f *Firebase) GetSigner(domain string) (*Signer, error) {
+	c, err := f.getSigner(domain)
 	if err != nil {
 		return nil, err
 	}
@@ -96,28 +100,28 @@ func (f *Firebase) GetCreator(domain string) (*Creator, error) {
 		if err != nil {
 			return nil, err
 		}
-		c, err = f.common.getCreator(domain)
+		c, err = f.getSigner(domain)
 	}
 	return c, err
 }
 
 func (f *Firebase) refresh() error {
 	// Fetch the creators
-	cs, err := f.fetchCreators()
+	s, err := f.fetchSigners()
 	if err != nil {
 		return err
 	}
 	// In a single atomic operation update the reference to the creators.
 	f.mutex.Lock()
-	f.creators = cs
+	f.signers = s
 	f.mutex.Unlock()
 
 	return nil
 }
 
-func (f *Firebase) fetchCreators() (map[string]*Creator, error) {
+func (f *Firebase) fetchSigners() (map[string]*Signer, error) {
 	ctx := context.Background()
-	cs := make(map[string]*Creator)
+	cs := make(map[string]*Signer)
 
 	iter := f.client.Collection(creatorsTableName).Documents(ctx)
 	for {
@@ -133,7 +137,7 @@ func (f *Firebase) fetchCreators() (map[string]*Creator, error) {
 		if err != nil {
 			return nil, err
 		}
-		cs[item.Domain] = newCreator(
+		cs[item.Domain] = newSigner(
 			item.Domain,
 			item.PrivateKey,
 			item.PublicKey,

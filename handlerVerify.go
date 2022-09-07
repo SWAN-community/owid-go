@@ -17,10 +17,11 @@
 package owid
 
 import (
+	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"net/http"
-	"strings"
+
+	"github.com/SWAN-community/common-go"
 )
 
 type verify struct {
@@ -35,49 +36,78 @@ type verify struct {
 func HandlerVerify(s *Services) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var v verify
-		p, o, err := verifyGetOWIDs(r)
-		if err != nil {
-			returnAPIError(s, w, err, http.StatusBadRequest)
+		g := s.getSigner(w, r)
+		if g == nil {
 			return
 		}
-		c, err := getCreatorFromRequest(s, r)
-		if err != nil {
-			returnAPIError(s, w, err, http.StatusInternalServerError)
+		o := verifyGetOWIDAndData(w, r)
+		if o == nil {
 			return
 		}
-		v.Valid, err = c.Verify(o, p)
-		if err != nil && strings.Contains(err.Error(), "verification error") {
-			returnAPIError(s, w, err, http.StatusInternalServerError)
+		var err error
+		v.Valid, err = g.Verify(o)
+		if err != nil {
+			common.ReturnServerError(w, err)
 			return
 		}
 		j, err := json.Marshal(v)
 		if err != nil {
-			returnAPIError(s, w, err, http.StatusInternalServerError)
+			common.ReturnServerError(w, err)
 			return
 		}
 		w.Header().Set("Cache-Control", "no-cache")
-		sendResponse(s, w, "application/json; charset=utf-8", j)
+		common.SendJS(w, j)
 	}
 }
 
-func verifyGetOWIDs(r *http.Request) (*OWID, *OWID, error) {
+func verifyGetOWIDAndData(w http.ResponseWriter, r *http.Request) *OWID {
 	err := r.ParseForm()
 	if err != nil {
-		return nil, nil, err
+		common.ReturnServerError(w, err)
+		return nil
 	}
 	if r.FormValue("owid") == "" {
-		return nil, nil, fmt.Errorf("owid parameter must be provided")
+		common.ReturnApplicationError(w, &common.HttpError{
+			Request: r,
+			Code:    http.StatusBadRequest,
+			Error:   err,
+			Message: "owid parameter must be provided"})
+		return nil
 	}
-	var p *OWID
-	if r.FormValue("parent") != "" {
-		p, err = FromBase64(r.FormValue("parent"))
-		if err != nil {
-			return nil, nil, err
-		}
+	if r.FormValue("data") == "" {
+		common.ReturnApplicationError(w, &common.HttpError{
+			Request: r,
+			Code:    http.StatusBadRequest,
+			Error:   err,
+			Message: "data parameter must be provided"})
+		return nil
 	}
-	o, err := FromBase64(r.FormValue("owid"))
+	d, err := base64.StdEncoding.DecodeString(r.FormValue("data"))
 	if err != nil {
-		return nil, nil, err
+		common.ReturnApplicationError(w, &common.HttpError{
+			Request: r,
+			Code:    http.StatusBadRequest,
+			Error:   err,
+			Message: "data not valid"})
+		return nil
 	}
-	return p, o, nil
+	o, err := FromBase64(r.FormValue("owid"), &ByteArray{Data: d})
+	if err != nil {
+		common.ReturnApplicationError(w, &common.HttpError{
+			Request: r,
+			Code:    http.StatusBadRequest,
+			Error:   err,
+			Message: "could not generate OWID"})
+		return nil
+	}
+	err = o.Validate()
+	if err != nil {
+		common.ReturnApplicationError(w, &common.HttpError{
+			Request: r,
+			Code:    http.StatusBadRequest,
+			Error:   err,
+			Message: "owid not valid"})
+		return nil
+	}
+	return o
 }

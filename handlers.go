@@ -17,102 +17,47 @@
 package owid
 
 import (
-	"compress/gzip"
 	"fmt"
-	"html/template"
 	"net/http"
+
+	"github.com/SWAN-community/common-go"
 )
 
 // AddHandlers to the http default mux for shared web state.
 func AddHandlers(s *Services) {
 	http.HandleFunc("/owid/register", HandlerRegister(s))
-	for i := owidVersion1; i <= owidVersion3; i++ {
+	http.HandleFunc("/owid/addkeys", HandlerAddKeys(s))
+	for _, i := range owidVersions {
 		b := fmt.Sprintf("/owid/api/v%d/", i)
-		http.HandleFunc(b+"public-key", HandlerPublicKey(s))
-		http.HandleFunc(b+"creator", HandlerCreator(s))
+		http.HandleFunc(b+"signer", HandlerSigner(s))
 		http.HandleFunc(b+"verify", HandlerVerify(s))
 		if s.config.Debug {
-			http.HandleFunc(b+"owids", HandlerOwidsJSON(s))
+			http.HandleFunc(b+"owids", HandlerSigners(s))
 		}
 	}
 }
 
-func returnAPIError(
-	s *Services,
-	w http.ResponseWriter,
-	err error,
-	code int) {
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	http.Error(w, err.Error(), code)
-	if s.config.Debug {
-		println(err.Error())
-	}
-}
-
-func returnServerError(s *Services, w http.ResponseWriter, err error) {
-	w.Header().Set("Cache-Control", "no-cache")
-	if s.config.Debug {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	} else {
-		http.Error(w, "", http.StatusInternalServerError)
-	}
-	if s.config.Debug {
-		println(err.Error())
-	}
-}
-
-func getCreatorFromRequest(s *Services, r *http.Request) (*Creator, error) {
-
-	// Get the node associated with the request.
-	c, err := s.store.GetCreator(r.Host)
+// getSigner for the request writing an error to the response if there is no
+// signer for the host associated with the request.
+func (s *Services) getSigner(w http.ResponseWriter, r *http.Request) *Signer {
+	g, err := s.store.GetSigner(r.Host)
 	if err != nil {
-		return nil, err
+		common.ReturnServerError(w, err)
+		return nil
 	}
-
-	return c, nil
-}
-
-// getWriter creates a new compressed writer for the content type provided.
-func getWriter(w http.ResponseWriter, c string) *gzip.Writer {
-	g := gzip.NewWriter(w)
-	w.Header().Set("Content-Encoding", "gzip")
-	w.Header().Set("Content-Type", c)
+	if g == nil {
+		common.ReturnApplicationError(w, &common.HttpError{
+			// Log this application error as it indicates the hosting
+			// environment is misconfigured. The request should never have
+			// reached the application.
+			Log:     true,
+			Request: r,
+			Code:    http.StatusBadRequest,
+			Message: fmt.Sprintf("no signer available for '%s'", r.Host),
+			Error: fmt.Errorf(
+				"use register handler to create signer for domain '%s'",
+				r.Host)})
+		return nil
+	}
 	return g
-}
-
-func sendHTMLTemplate(s *Services,
-	w http.ResponseWriter,
-	t *template.Template,
-	m interface{}) {
-	w.Header().Set("Cache-Control", "no-cache")
-	g := getWriter(w, "text/html; charset=utf-8")
-	defer g.Close()
-	err := t.Execute(g, m)
-	if err != nil {
-		returnServerError(s, w, err)
-	}
-}
-
-func sendResponse(
-	s *Services,
-	w http.ResponseWriter,
-	c string,
-	b []byte) {
-	g := getWriter(w, c)
-	defer g.Close()
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	l, err := g.Write(b)
-	if err != nil {
-		returnAPIError(s, w, err, http.StatusInternalServerError)
-		return
-	}
-	if l != len(b) {
-		returnAPIError(
-			s,
-			w,
-			fmt.Errorf("Byte count mismatch"),
-			http.StatusInternalServerError)
-		return
-	}
 }

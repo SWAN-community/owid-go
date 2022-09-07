@@ -17,56 +17,25 @@
 package owid
 
 import (
-	"fmt"
-	"net/http"
+	"github.com/SWAN-community/access-go"
 )
 
-// Services references all the information needed for every method.
+// Services references all the information needed for OWID methods.
 type Services struct {
-	config Configuration // Configuration used by the server.
-	store  Store         // Instance of storage service for node data
-	access Access        // Instance of access service
+	config *Configuration // Configuration used by the server.
+	store  Store          // Instance of storage service for signer data
+	access access.Access  // Instance of access service used to verify additions of keys for existing signers.
 }
 
-// NewServices a set of services to use with Shared Web State. These provide
-// defaults via the configuration parameter, and access to persistent storage
-// via the store parameter.
-func NewServices(
-	config Configuration,
-	store Store,
-	access Access) *Services {
-	var s Services
-	s.config = config
-	s.store = store
-	s.access = access
-	return &s
+// NewServices a set of services to use with OWID. These provide defaults via
+// the configuration parameter, and access to persistent storage for signer
+// configuration via the store parameter.
+// config
+func NewServices(config *Configuration, store Store, access access.Access) *Services {
+	return &Services{config: config, store: store, access: access}
 }
 
-// Config returns the configuration service.
-func (s *Services) Config() *Configuration { return &s.config }
-
-// GetCreator returns the store service
-func (s *Services) GetCreator(host string) (*Creator, error) {
-	return s.store.GetCreator(host)
-}
-
-// Returns true if the request is allowed to access the handler, otherwise false.
-// If false is returned then no further action is needed as the method will have
-// responded to the request already.
-func (s *Services) getAccessAllowed(w http.ResponseWriter, r *http.Request) bool {
-	err := r.ParseForm()
-	if err != nil {
-		returnAPIError(s, w, err, http.StatusInternalServerError)
-		return false
-	}
-	v, err := s.access.GetAllowed(r.FormValue("accesskey"))
-	if v == false || err != nil {
-		returnAPIError(
-			s,
-			w,
-			fmt.Errorf("Access denied"),
-			http.StatusNetworkAuthenticationRequired)
-		return false
-	}
-	return true
+// GetSigner returns the signer from the store used by the service.
+func (s *Services) GetSigner(host string) (*Signer, error) {
+	return s.store.GetSigner(host)
 }

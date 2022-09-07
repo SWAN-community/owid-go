@@ -18,7 +18,6 @@ package owid
 
 import (
 	"encoding/json"
-	"io/ioutil"
 	"os"
 	"path"
 	"sync"
@@ -28,9 +27,9 @@ import (
 // Local store implementation for OWID - data is stored in maps in memory and
 // persisted on disk using JSON files.
 type Local struct {
+	storeBase
 	timestamp time.Time // The last time the maps were refreshed
 	file      string    // file path
-	common
 }
 
 // NewLocalStore creates a new instance of Local from a given file path.
@@ -47,29 +46,10 @@ func NewLocalStore(file string) (*Local, error) {
 	return &l, nil
 }
 
-// setCreator adds a new Creator to the local store.
-func (l *Local) setCreator(creator *Creator) error {
-	l.mutex.Lock()
-	l.creators[creator.domain] = creator
-	l.mutex.Unlock()
-
-	data, err := json.MarshalIndent(&l.creators, "", "\t")
-	if err != nil {
-		return err
-	}
-
-	err = writeLocalStore(l.file, data)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// GetCreator gets creator for domain from internal map, updating the internal
-// map if the creator is not in the map.
-func (l *Local) GetCreator(domain string) (*Creator, error) {
-	c, err := l.common.getCreator(domain)
+// GetSigner gets signer for domain from internal map, updating the internal
+// map if the signer is not in the map.
+func (l *Local) GetSigner(domain string) (*Signer, error) {
+	c, err := l.getSigner(domain)
 	if err != nil {
 		return nil, err
 	}
@@ -78,43 +58,72 @@ func (l *Local) GetCreator(domain string) (*Creator, error) {
 		if err != nil {
 			return nil, err
 		}
-		c, err = l.common.getCreator(domain)
+		c, err = l.getSigner(domain)
 	}
 	return c, err
 }
 
-// refresh loads the Creators from the persistent JSON storage into the local
-// storage instance.
-func (l *Local) refresh() error {
-	// Fetch the creators
-	cs, err := l.fetchCreators()
+// addKeys inserts a new key for the signer.
+func (l *Local) addKeys(d string, key *Keys) error {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	l.signers[d].Keys = append(l.signers[d].Keys, key)
+	return l.save()
+}
+
+// addSigner adds a new Signer to the local store.
+func (l *Local) addSigner(signer *Signer) error {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	l.signers[signer.Domain] = signer
+	return l.save()
+}
+
+func (l *Local) save() error {
+	data, err := json.MarshalIndent(&l.signers, "", "\t")
 	if err != nil {
 		return err
 	}
-	// In a single atomic operation update the reference to the creators.
-	l.mutex.Lock()
-	l.creators = cs
-	l.mutex.Unlock()
-	l.timestamp = time.Now()
-
+	err = writeLocalStore(l.file, data)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
-// fetch creators reads the Creators from the persistent JSON files and
-// converts them from a map of storage items to a map of Creators.
-func (l *Local) fetchCreators() (map[string]*Creator, error) {
-	cs := make(map[string]*Creator)
+// refresh loads the signers from the persistent JSON storage into the local
+// storage instance.
+func (l *Local) refresh() error {
+	// Fetch the signers
+	s, err := l.fetchSigners()
+	if err != nil {
+		return err
+	}
+	// Sort the keys in the signers.
+	for _, i := range s {
+		i.SortKeys()
+	}
+	// In a single atomic operation update the reference to the signers.
+	l.mutex.Lock()
+	l.signers = s
+	l.mutex.Unlock()
+	l.timestamp = time.Now()
+	return nil
+}
+
+// fetchSigners reads the Signers from the persistent JSON files and converts
+// them from a map of storage items to a map of signers keyed on domain.
+func (l *Local) fetchSigners() (map[string]*Signer, error) {
+	s := make(map[string]*Signer)
 	data, err := readLocalStore(l.file)
 	if err != nil {
 		return nil, err
 	}
-
-	err = json.Unmarshal(data, &cs)
+	err = json.Unmarshal(data, &s)
 	if err != nil && len(data) > 0 {
 		return nil, err
 	}
-
-	return cs, nil
+	return s, nil
 }
 
 // readLocalStore reads the contents of a file and returns the binary data.
@@ -123,12 +132,10 @@ func readLocalStore(file string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	data, err := ioutil.ReadFile(file)
+	data, err := os.ReadFile(file)
 	if err != nil {
 		return nil, err
 	}
-
 	return data, nil
 }
 
@@ -138,8 +145,7 @@ func writeLocalStore(file string, data []byte) error {
 	if err != nil {
 		return err
 	}
-
-	err = ioutil.WriteFile(file, data, 0644)
+	err = os.WriteFile(file, data, 0644)
 	if err != nil {
 		return err
 	}
@@ -150,11 +156,9 @@ func writeLocalStore(file string, data []byte) error {
 // in the path.
 func createLocalStore(file string) error {
 	if _, err := os.Stat(file); os.IsNotExist(err) {
-
 		if _, err := os.Stat(path.Dir(file)); os.IsNotExist(err) {
 			os.MkdirAll(path.Dir(file), 0700)
 		}
-
 		_, err = os.Create(file)
 		if err != nil {
 			return err

@@ -18,6 +18,7 @@ package owid
 
 import (
 	"container/list"
+	"encoding"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -25,10 +26,10 @@ import (
 
 // Node in a tree of nodes.
 type Node struct {
-	OWID     []byte      // The OWID byte array
-	Children []*Node     // The children of this node, or nil if a leaf
-	Value    interface{} // The value associated with the OWID node
-	parent   *Node       // The parent of this node, or nil if the root
+	OWID     []byte                   // The OWID byte array
+	Children []*Node                  // The children of this node, or nil if a leaf
+	Value    encoding.BinaryMarshaler // The value associated with the OWID node
+	parent   *Node                    // The parent of this node, or nil if the root
 }
 
 // GetParent returns the parent for this node.
@@ -38,7 +39,7 @@ func (n *Node) GetParent() *Node {
 
 // GetOWID returns the OWID associated with the node.
 func (n *Node) GetOWID() (*OWID, error) {
-	return FromByteArray(n.OWID)
+	return FromByteArray(n.OWID, n.Value)
 }
 
 // GetOWIDAsString returns the OWID as a base 64 string.
@@ -132,7 +133,7 @@ func (n *Node) AddChild(child *Node) (uint32, error) {
 func (n *Node) AddOWID(o *OWID) (*Node, error) {
 	var err error
 	var c Node
-	c.OWID, err = o.AsByteArray()
+	c.OWID, err = o.MarshalBinary()
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +166,7 @@ func (n *Node) GetLeaf() (*Node, error) {
 		n = n.Children[0]
 	}
 	if len(n.Children) > 1 {
-		return nil, fmt.Errorf("Tree contains multiple leaves")
+		return nil, fmt.Errorf("tree contains multiple leaves")
 	}
 	return n, nil
 }

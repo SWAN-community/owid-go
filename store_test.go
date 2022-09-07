@@ -16,42 +16,35 @@
 
 package owid
 
-import (
-	"bytes"
-	"fmt"
-	"testing"
-	"time"
-)
-
-func TestIoTime(t *testing.T) {
-	d := time.Now().UTC()
-	var b bytes.Buffer
-	err := writeDate(&b, d, 2)
-	if err != nil {
-		fmt.Println(err)
-		t.Fail()
-	}
-	i := b.Bytes()
-	c := bytes.NewBuffer(i)
-	r, err := readDate(c, 2)
-	if err != nil {
-		fmt.Println(err)
-		t.Fail()
-	}
-	testCompareDate(t, r, d)
+// storeTest used to support OWID tests. All the signers data is held in memory
+// and not persisted.
+type storeTest struct {
+	storeBase
 }
 
-func testCompareDate(t *testing.T, a time.Time, b time.Time) {
-	if a.Year() != b.Year() {
-		fmt.Printf("Year %d != %d", a.Year(), b.Year())
-		t.Fail()
-	}
-	if a.Month() != b.Month() {
-		fmt.Printf("Month %d != %d", a.Month(), b.Month())
-		t.Fail()
-	}
-	if a.Day() != b.Day() {
-		fmt.Printf("Day %d != %d", a.Day(), b.Day())
-		t.Fail()
-	}
+// newTestStore creates a new test store and adds the domain swan.community
+// as an OWID signer.
+func newTestStore() *storeTest {
+	var st storeTest
+	st.init()
+	return &st
+}
+
+func (st *storeTest) GetSigner(domain string) (*Signer, error) {
+	return st.getSigner(domain)
+}
+
+func (st *storeTest) refresh() error {
+	// Do nothing.
+	return nil
+}
+
+func (st *storeTest) addSigner(s *Signer) error {
+	st.signers[s.Domain] = s
+	return nil
+}
+
+func (st *storeTest) addKeys(d string, k *Keys) error {
+	st.signers[d].Keys = append(st.signers[d].Keys, k)
+	return nil
 }

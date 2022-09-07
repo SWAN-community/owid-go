@@ -16,15 +16,21 @@
 
 package owid
 
-// Register contains HTML template data used to register a creator
+// Register contains HTML template data used to register a signer
 type Register struct {
-	Services         *Services
-	Domain           string
-	Name             string
-	ContractURL      string
-	Error            string
-	NameError        string
-	ContractURLError string
-	ReadOnly         bool
-	DisplayErrors    bool
+	Services          *Services
+	Domain            string
+	Name              string
+	TermsURL          string
+	Error             string
+	NameError         string
+	TermsURLError     string
+	ReadOnly          bool
+	MinNameLength     int
+	MaxNameLength     int
+	MaxTermsURLLength int
+}
+
+func (r *Register) DisplayErrors() bool {
+	return r.TermsURLError != "" || r.NameError != ""
 }

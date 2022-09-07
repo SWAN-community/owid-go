@@ -17,43 +17,48 @@
 package owid
 
 import (
-	"fmt"
+	"encoding/json"
 	"net/http"
+
+	"github.com/SWAN-community/common-go"
 )
 
-// HandlerPublicKey returns the public key associated with the creator.
-func HandlerPublicKey(s *Services) http.HandlerFunc {
+// HandlerSigner Returns the public information associated with the creator.
+func HandlerSigner(s *Services) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		c, err := s.store.GetCreator(r.Host)
-		if err != nil {
-			returnAPIError(s, w, err, http.StatusInternalServerError)
+		g := s.getSigner(w, r)
+		if g == nil {
 			return
 		}
-		if c == nil {
-			returnAPIError(s, w, err, http.StatusInternalServerError)
+		err := r.ParseForm()
+		if err != nil {
+			common.ReturnServerError(w, err)
 			return
 		}
-		err = r.ParseForm()
+		ps, err := publicSigner(g)
 		if err != nil {
-			returnAPIError(s, w, err, http.StatusInternalServerError)
+			common.ReturnServerError(w, err)
 			return
 		}
-		var p string
-		switch r.Form.Get("format") {
-		case "pkcs":
-			p = c.publicKey
-		case "spki":
-			p, err = c.SubjectPublicKeyInfo()
-			break
-		default:
-			err = fmt.Errorf(
-				"format parameter 'spki' or 'pkcs' must be provided")
-		}
+		u, err := json.Marshal(ps)
 		if err != nil {
-			returnAPIError(s, w, err, http.StatusInternalServerError)
+			common.ReturnServerError(w, err)
 			return
 		}
 		w.Header().Set("Cache-Control", "max-age=60")
-		sendResponse(s, w, "text/plain; charset=utf-8", []byte(p))
+		common.SendJS(w, u)
 	}
+}
+
+func publicSigner(s *Signer) (*SignerPublic, error) {
+	var err error
+	ps := &SignerPublic{
+		Domain:   s.Domain,
+		Name:     s.Name,
+		TermsURL: s.TermsURL}
+	ps.PublicKeys, err = s.PublicKeys()
+	if err != nil {
+		return nil, err
+	}
+	return ps, nil
 }

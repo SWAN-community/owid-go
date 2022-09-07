@@ -18,7 +18,6 @@ package owid
 
 import (
 	"sync"
-	"time"
 
 	"github.com/Azure/azure-sdk-for-go/storage"
 )
@@ -27,12 +26,11 @@ const (
 	azureTimeout = 2
 )
 
-// Azure is a concrete implementation of store.go, connecting to Azure table
-// storage
+// Azure is a concrete implementation of owid.Store connecting to Azure table
+// storage.
 type Azure struct {
-	timestamp     time.Time      // The last time the maps were refreshed
-	creatorsTable *storage.Table // Reference to the creator table
-	common
+	storeBase
+	creatorsTable *storage.Table // Reference to the Signer table
 }
 
 // NewAzure creates a new instance of the Azure structure.
@@ -56,29 +54,29 @@ func NewAzure(account string, accessKey string) (*Azure, error) {
 	return &a, nil
 }
 
-// GetCreator gets creator for domain from internal map, updating the internal
-// map if the creator is not in the map.
-func (a *Azure) GetCreator(domain string) (*Creator, error) {
-	c, err := a.common.getCreator(domain)
+// GetSigner gets Signer for domain from internal map, updating the internal
+// map if the Signer is not in the map.
+func (a *Azure) GetSigner(domain string) (*Signer, error) {
+	s, err := a.getSigner(domain)
 	if err != nil {
 		return nil, err
 	}
-	if c == nil {
+	if s == nil {
 		err = a.refresh()
 		if err != nil {
 			return nil, err
 		}
-		c, err = a.common.getCreator(domain)
+		s, err = a.getSigner(domain)
 	}
-	return c, err
+	return s, err
 }
 
-func (a *Azure) setCreator(creator *Creator) error {
-	e := a.creatorsTable.GetEntityReference(creatorsTablePartitionKey, creator.domain)
+func (a *Azure) addSigner(Signer *Signer) error {
+	e := a.creatorsTable.GetEntityReference(creatorsTablePartitionKey, Signer.domain)
 	e.Properties = make(map[string]interface{})
-	e.Properties[privateKeyFieldName] = creator.privateKey
-	e.Properties[publicKeyFieldName] = creator.publicKey
-	e.Properties[nameFieldName] = creator.name
+	e.Properties[privateKeyFieldName] = Signer.privateKey
+	e.Properties[publicKeyFieldName] = Signer.publicKey
+	e.Properties[nameFieldName] = Signer.name
 	return e.Insert(storage.FullMetadata, nil)
 }
 
@@ -99,21 +97,21 @@ func azureCreateTable(t *storage.Table) error {
 
 func (a *Azure) refresh() error {
 	// Fetch the creators
-	cs, err := a.fetchCreators()
+	s, err := a.fetchCreators()
 	if err != nil {
 		return err
 	}
 	// In a single atomic operation update the reference to the creators.
 	a.mutex.Lock()
-	a.creators = cs
+	a.signers = s
 	a.mutex.Unlock()
 
 	return nil
 }
 
-func (a *Azure) fetchCreators() (map[string]*Creator, error) {
+func (a *Azure) fetchCreators() (map[string]*Signer, error) {
 	var err error
-	cs := make(map[string]*Creator)
+	cs := make(map[string]*Signer)
 
 	// Fetch all the records from the nodes table in Azure.
 	e, err := a.creatorsTable.QueryEntities(
@@ -127,7 +125,7 @@ func (a *Azure) fetchCreators() (map[string]*Creator, error) {
 	// Iterate over the records creating nodes and adding them to the creators
 	// map.
 	for _, i := range e.Entities {
-		cs[i.RowKey] = newCreator(
+		cs[i.RowKey] = newSigner(
 			i.RowKey,
 			i.Properties[privateKeyFieldName].(string),
 			i.Properties[publicKeyFieldName].(string),

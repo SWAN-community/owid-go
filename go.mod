@@ -1,6 +1,6 @@
 module github.com/SWAN-community/owid-go
 
-go 1.17
+go 1.19
 
 require (
 	cloud.google.com/go/firestore v1.5.0
@@ -8,13 +8,17 @@ require (
 	github.com/Azure/azure-sdk-for-go v48.2.0+incompatible
 	github.com/Azure/go-autorest/autorest v0.11.11 // indirect
 	github.com/Azure/go-autorest/autorest/to v0.4.0 // indirect
-	github.com/SWAN-community/config-go v0.1.4
 	github.com/aws/aws-sdk-go v1.35.27
 	github.com/dnaeon/go-vcr v1.1.0 // indirect
 	github.com/niemeyer/pretty v0.0.0-20200227124842-a10e7caefd8e // indirect
 	github.com/satori/go.uuid v1.2.0 // indirect
 	google.golang.org/api v0.44.0
 	gopkg.in/check.v1 v1.0.0-20200902074654-038fdea0a05b // indirect
+)
+
+require (
+	github.com/SWAN-community/common-go v0.1.0
+	github.com/SWAN-community/config-go v0.1.4
 )
 
 require (
@@ -25,12 +29,14 @@ require (
 	github.com/Azure/go-autorest/autorest/date v0.3.0 // indirect
 	github.com/Azure/go-autorest/logger v0.2.0 // indirect
 	github.com/Azure/go-autorest/tracing v0.6.0 // indirect
+	github.com/SWAN-community/access-go v0.0.0-00010101000000-000000000000 // indirect
 	github.com/form3tech-oss/jwt-go v3.2.2+incompatible // indirect
 	github.com/fsnotify/fsnotify v1.4.9 // indirect
 	github.com/golang/groupcache v0.0.0-20200121045136-8c9f03a8e57e // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/google/go-cmp v0.5.5 // indirect
 	github.com/googleapis/gax-go/v2 v2.0.5 // indirect
+	github.com/hashicorp/golang-lru v0.5.4 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/jstemmer/go-junit-report v0.9.1 // indirect
@@ -59,4 +65,10 @@ require (
 	google.golang.org/protobuf v1.26.0 // indirect
 	gopkg.in/ini.v1 v1.62.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
+)
+
+replace (
+	github.com/SWAN-community/access-go => ../access
+	github.com/SWAN-community/common-go => ../common
+	github.com/SWAN-community/config-go => ../config
 )

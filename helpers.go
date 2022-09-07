@@ -18,23 +18,32 @@ package owid
 
 import (
 	"testing"
+	"time"
 )
 
-func TestInvalidPublicPem(t *testing.T) {
-	_, err := NewCryptoVerifyOnly("invalid")
-	if err == nil {
-		t.Fatal("bad public PEM should error")
-	}
+var testDate = time.Date(2020, time.Month(11), 12, 0, 0, 0, 0, time.UTC)
+
+const (
+	testDomain   = "swan.community"
+	testName     = "Secure Web Addressability Network"
+	testTermsUrl = "https://swan.community"
+)
+
+// NewTestSigner creates a new default test signer. A public test method so that
+// consuming packages can easilly create test signers to verify their OWID
+// target structures.
+func NewTestDefaultSigner(t *testing.T) *Signer {
+	return NewTestSigner(t, testDomain, testName, testTermsUrl)
 }
 
-func TestInvalidPrivatePem(t *testing.T) {
-	_, err := NewCryptoSignOnly("invalid")
-	if err == nil {
-		t.Fatal("bad private PEM should error")
-	}
-}
-
-func TestCrypto(t *testing.T) {
+// NewTestSigner creates a new test signer for the domain, name, and terms
+// provided. A public test method so that consuming packages can easilly create
+// test signers to verify their OWID target structures.
+func NewTestSigner(
+	t *testing.T,
+	domain string,
+	name string,
+	termsURL string) *Signer {
 	c, err := NewCrypto()
 	if err != nil {
 		t.Fatal(err)
@@ -47,23 +56,13 @@ func TestCrypto(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := NewCryptoSignOnly(privateKey)
+	s, err := newSigner(
+		domain,
+		name,
+		termsURL,
+		&Keys{PublicKey: publicKey, PrivateKey: privateKey, Created: testDate})
 	if err != nil {
 		t.Fatal(err)
 	}
-	v, err := NewCryptoVerifyOnly(publicKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	a, err := s.SignByteArray([]byte(testData))
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, err := v.VerifyByteArray([]byte(testData), a)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if b != true {
-		t.Errorf("signature was invalid")
-	}
+	return s
 }

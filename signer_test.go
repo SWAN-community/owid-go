@@ -15,3 +15,28 @@
  * ***************************************************************************/
 
 package owid
+
+import "testing"
+
+const testData = "SWAN OWID Test"
+
+var testByteArray = &ByteArray{Data: []byte(testData)}
+
+func TestSigner(t *testing.T) {
+	s := NewTestDefaultSigner(t)
+	o, err := s.NewOwid(testByteArray)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = s.Sign(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := s.Verify(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r {
+		t.Fatal("verification failed")
+	}
+}

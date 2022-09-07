@@ -16,11 +16,10 @@
 
 package owid
 
+// cspell:ignore awserr dynamodbattribute filt
 import (
-	"errors"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -34,40 +33,34 @@ import (
 
 // AWS is a implementation of owid.Store for Amazon's Dynamo DB storage.
 type AWS struct {
-	timestamp time.Time          // The last time the maps were refreshed
-	svc       *dynamodb.DynamoDB // Reference to the creators table
-	common
-}
-
-// Item is the dynamodb table item representation of a Creator
-type Item struct {
-	Owidcreator string
-	Domain      string
-	PrivateKey  string
-	PublicKey   string
-	Name        string
-	ContractURL string
+	storeBase
+	svc *dynamodb.DynamoDB // Reference to the creators table
 }
 
 // NewAWS creates a new instance of the AWS structure
+// cspell:ignore sess
 func NewAWS() (*AWS, error) {
 	var a AWS
-	var sess *session.Session
 
 	// Configure session with credentials from .aws/credentials or env and
 	// region from .aws/config or env
-	sess = session.Must(session.NewSessionWithOptions(session.Options{
+	sess := session.Must(session.NewSessionWithOptions(session.Options{
 		SharedConfigState: session.SharedConfigEnable,
 	}))
 
 	if sess == nil {
-		return nil, errors.New("AWS session is nil")
+		return nil, fmt.Errorf("AWS session is nil")
 	}
 	a.svc = dynamodb.New(sess)
 
-	_, err := a.awsCreateCreatorsTable()
+	_, err := a.awsCreateKeysTable()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create keys table: %w", err)
+	}
+
+	_, err = a.awsCreateSignersTable()
+	if err != nil {
+		return nil, fmt.Errorf("create signers table: %w", err)
 	}
 
 	a.mutex = &sync.Mutex{}
@@ -78,117 +71,69 @@ func NewAWS() (*AWS, error) {
 	return &a, nil
 }
 
-func (a *AWS) setCreator(c *Creator) error {
-	item := Item{
-		creatorsTablePartitionKey,
-		c.domain,
-		c.privateKey,
-		c.publicKey,
-		c.name,
-		c.contractURL}
-
-	av, err := dynamodbattribute.MarshalMap(item)
+// GetSigner gets signer for domain from internal map, updating the internal
+// map from AWS if the signer is not in the map.
+func (a *AWS) GetSigner(domain string) (*Signer, error) {
+	s, err := a.getSigner(domain)
 	if err != nil {
-		fmt.Println("Got error marshalling new creator item:")
-		return err
+		return nil, err
+	}
+	if s == nil {
+		err = a.refresh()
+		if err != nil {
+			return nil, err
+		}
+		s, err = a.getSigner(domain)
+	}
+	return s, err
+}
+
+func (a *AWS) addItem(tableName string, i interface{}) error {
+	av, err := dynamodbattribute.MarshalMap(i)
+	if err != nil {
+		return fmt.Errorf("MarshalMap: %w", err)
 	}
 
 	input := &dynamodb.PutItemInput{
 		Item:      av,
-		TableName: aws.String(creatorsTableName),
+		TableName: aws.String(tableName),
 	}
 
 	_, err = a.svc.PutItem(input)
 	if err != nil {
-		fmt.Println("Got error calling PutItem:")
-		return err
+		return fmt.Errorf("PutItem: %s %w", tableName, err)
 	}
 
 	return nil
 }
 
-// GetCreator gets creator for domain from internal map, updating the internal
-// map if the creator is not in the map.
-func (a *AWS) GetCreator(domain string) (*Creator, error) {
-	c, err := a.common.getCreator(domain)
+func (a *AWS) addKeys(d string, k *Keys) error {
+	return a.addItem(keysTableName, &KeysWithDomain{
+		Domain: d,
+		Keys:   k})
+}
+
+func (a *AWS) addSigner(s *Signer) error {
+	err := a.addItem(signersTableName, s)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if c == nil {
-		err = a.refresh()
+	for _, k := range s.Keys {
+		err = a.addKeys(s.Domain, k)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		c, err = a.common.getCreator(domain)
 	}
-	return c, err
+	return nil
 }
 
-func (a *AWS) getCreatorDirect(domain string) (*Creator, error) {
-	result, err := a.svc.GetItem(&dynamodb.GetItemInput{
-		TableName: aws.String(creatorsTableName),
-		Key: map[string]*dynamodb.AttributeValue{
-			creatorsTablePartitionKeyName: {
-				S: aws.String(creatorsTablePartitionKey),
-			},
-			creatorsTableDomainAttribute: {
-				S: aws.String(domain),
-			},
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	if result.Item == nil {
-		msg := "Could not find '" + domain + "'"
-		return nil, errors.New(msg)
-	}
-
-	item := Item{}
-
-	err = dynamodbattribute.UnmarshalMap(result.Item, &item)
-	if err != nil {
-		panic(fmt.Sprintf("Failed to unmarshal Record, %v", err))
-	}
-
-	c := newCreator(
-		item.Domain,
-		item.PrivateKey,
-		item.PublicKey,
-		item.Name,
-		item.ContractURL)
-	return c, nil
-}
-
-func (a *AWS) awsCreateCreatorsTable() (*dynamodb.CreateTableOutput, error) {
-	input := &dynamodb.CreateTableInput{
-		AttributeDefinitions: []*dynamodb.AttributeDefinition{
-			{
-				AttributeName: aws.String(creatorsTablePartitionKeyName),
-				AttributeType: aws.String("S"),
-			},
-			{
-				AttributeName: aws.String(creatorsTableDomainAttribute),
-				AttributeType: aws.String("S"),
-			},
-		},
-		KeySchema: []*dynamodb.KeySchemaElement{
-			{
-				AttributeName: aws.String(creatorsTablePartitionKeyName),
-				KeyType:       aws.String("HASH"),
-			},
-			{
-				AttributeName: aws.String(creatorsTableDomainAttribute),
-				KeyType:       aws.String("RANGE"),
-			},
-		},
-		BillingMode: aws.String("PAY_PER_REQUEST"),
-		TableName:   aws.String(creatorsTableName),
-	}
-
+// addTable adds the table to the AWS service and verifies that it has been
+// created correctly.
+func (a *AWS) addTable(
+	input *dynamodb.CreateTableInput) (*dynamodb.CreateTableOutput, error) {
 	o, err := a.svc.CreateTable(input)
 	if err != nil {
+		// cspell:ignore aerr
 		if aerr, ok := err.(awserr.Error); ok {
 			switch aerr.Code() {
 			case dynamodb.ErrCodeTableAlreadyExistsException:
@@ -205,7 +150,7 @@ func (a *AWS) awsCreateCreatorsTable() (*dynamodb.CreateTableOutput, error) {
 
 	for {
 		input := &dynamodb.DescribeTableInput{
-			TableName: aws.String(creatorsTableName),
+			TableName: aws.String(*input.TableName),
 		}
 		result, err := a.svc.DescribeTable(input)
 		if err != nil {
@@ -219,71 +164,164 @@ func (a *AWS) awsCreateCreatorsTable() (*dynamodb.CreateTableOutput, error) {
 	return o, nil
 }
 
+func (a *AWS) awsCreateKeysTable() (*dynamodb.CreateTableOutput, error) {
+	return a.addTable(&dynamodb.CreateTableInput{
+		AttributeDefinitions: []*dynamodb.AttributeDefinition{
+			{
+				AttributeName: aws.String("Domain"),
+				AttributeType: aws.String("S"),
+			},
+			{
+				AttributeName: aws.String("Created"),
+				AttributeType: aws.String("S"),
+			},
+		},
+		KeySchema: []*dynamodb.KeySchemaElement{
+			{
+				AttributeName: aws.String("Domain"),
+				KeyType:       aws.String("HASH"),
+			},
+			{
+				AttributeName: aws.String("Created"),
+				KeyType:       aws.String("RANGE"),
+			},
+		},
+		BillingMode: aws.String("PAY_PER_REQUEST"),
+		TableName:   aws.String(keysTableName),
+	})
+}
+
+func (a *AWS) awsCreateSignersTable() (*dynamodb.CreateTableOutput, error) {
+	return a.addTable(&dynamodb.CreateTableInput{
+		AttributeDefinitions: []*dynamodb.AttributeDefinition{
+			{
+				AttributeName: aws.String("Domain"),
+				AttributeType: aws.String("S"),
+			}},
+		KeySchema: []*dynamodb.KeySchemaElement{
+			{
+				AttributeName: aws.String("Domain"),
+				KeyType:       aws.String("RANGE"),
+			}},
+		BillingMode: aws.String("PAY_PER_REQUEST"),
+		TableName:   aws.String(signersTableName),
+	})
+}
+
 func (a *AWS) refresh() error {
-	// Fetch the creators
-	cs, err := a.fetchCreators()
+	// Fetch the signers
+	s, err := a.fetchSigners()
 	if err != nil {
 		return err
 	}
+
 	// In a single atomic operation update the reference to the creators.
 	a.mutex.Lock()
-	a.creators = cs
+	a.signers = s
 	a.mutex.Unlock()
 
 	return nil
 }
 
-func (a *AWS) fetchCreators() (map[string]*Creator, error) {
+func (a *AWS) fetchSigners() (map[string]*Signer, error) {
 
-	cs := make(map[string]*Creator)
+	signers := make(map[string]*Signer)
 
-	filt := expression.Name(creatorsTablePartitionKeyName).Equal(expression.Value(creatorsTablePartitionKey))
-
-	proj := expression.NamesList(expression.Name(creatorsTableDomainAttribute),
-		expression.Name("PrivateKey"),
-		expression.Name("PublicKey"),
-		expression.Name("Name"))
-
-	expr, err := expression.NewBuilder().WithFilter(filt).WithProjection(proj).Build()
+	// Get the signers from AWS.
+	s, err := a.scanSigners()
 	if err != nil {
-		fmt.Println("Got error building expression:")
-		fmt.Println(err.Error())
-		return nil, err
+		return nil, fmt.Errorf("scanning signers: %w", err)
 	}
 
-	params := &dynamodb.ScanInput{
+	// Loop through the results adding them to the signers map.
+	for _, i := range s.Items {
+
+		// Create the new signer from the item read.
+		var n Signer
+		err := dynamodbattribute.UnmarshalMap(i, &n)
+		if err != nil {
+			return nil, fmt.Errorf("unmarshalling signer: %w", err)
+		}
+
+		// Adds the keys for the signer.
+		err = a.addKeysToSigner(&n)
+		if err != nil {
+			return nil, err
+		}
+
+		signers[n.Domain] = &n
+	}
+
+	return signers, nil
+}
+
+func (a *AWS) addKeysToSigner(s *Signer) error {
+
+	// Scan the table for the keys that match the domain.
+	k, err := a.scanKeys(s.Domain)
+	if err != nil {
+		return fmt.Errorf("scanning keys: %w", err)
+	}
+
+	// Make the array of keys large enough to include all the items.
+	s.Keys = make([]*Keys, *k.Count)
+
+	// Unmarshall the keys into the signer's array of keys.
+	for i, a := range k.Items {
+		var n Keys
+		err := dynamodbattribute.UnmarshalMap(a, &n)
+		if err != nil {
+			return fmt.Errorf(
+				"unmarshalling keys for domain '%s': %w",
+				s.Domain,
+				err)
+		}
+		s.Keys[i] = &n
+	}
+	s.SortKeys()
+
+	return nil
+}
+
+// scanKeys scans the keys for the given domain.
+func (a *AWS) scanKeys(domain string) (*dynamodb.ScanOutput, error) {
+	expr, err := expression.NewBuilder().WithFilter(
+		expression.Name("Domain").Equal(
+			expression.Value(domain))).WithProjection(
+		expression.NamesList(
+			expression.Name("Created"),
+			expression.Name("PublicKey"),
+			expression.Name("PrivateKey"))).Build()
+	if err != nil {
+		return nil, fmt.Errorf("building keys expression: %w", err)
+	}
+	return a.scan(expr, signersTableName)
+}
+
+// scanSigners scans all the available signers in the table.
+func (a *AWS) scanSigners() (*dynamodb.ScanOutput, error) {
+	expr, err := expression.NewBuilder().WithProjection(
+		expression.NamesList(
+			expression.Name("Domain"),
+			expression.Name("Name"),
+			expression.Name("TermsURL"))).Build()
+	if err != nil {
+		return nil, fmt.Errorf("building signers expression: %w", err)
+	}
+	return a.scan(expr, signersTableName)
+}
+
+func (a *AWS) scan(
+	expr expression.Expression,
+	tableName string) (*dynamodb.ScanOutput, error) {
+	result, err := a.svc.Scan(&dynamodb.ScanInput{
 		ExpressionAttributeNames:  expr.Names(),
 		ExpressionAttributeValues: expr.Values(),
 		FilterExpression:          expr.Filter(),
 		ProjectionExpression:      expr.Projection(),
-		TableName:                 aws.String(creatorsTableName),
-	}
-
-	// Make the DynamoDB Query API call
-	result, err := a.svc.Scan(params)
+		TableName:                 aws.String(tableName)})
 	if err != nil {
-		fmt.Println("Query API call failed:")
-		fmt.Println((err.Error()))
-		return nil, err
+		return nil, fmt.Errorf("query API call failed: %w", err)
 	}
-
-	for _, i := range result.Items {
-		item := Item{}
-
-		err = dynamodbattribute.UnmarshalMap(i, &item)
-		if err != nil {
-			fmt.Println("Got error un-marshalling:")
-			fmt.Println(err.Error())
-			return nil, err
-		}
-
-		cs[item.Domain] = newCreator(
-			item.Domain,
-			item.PrivateKey,
-			item.PublicKey,
-			item.Name,
-			item.ContractURL)
-	}
-
-	return cs, nil
+	return result, nil
 }

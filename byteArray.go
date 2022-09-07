@@ -16,29 +16,13 @@
 
 package owid
 
-import (
-	"sync"
-)
-
-// common is a partial implementation of sws.Store for use with other more
-// complex implementations, and the test methods.
-type common struct {
-	creators map[string]*Creator // Map of domain names to nodes
-	mutex    *sync.Mutex         // mutual-exclusion lock used for refresh
+// ByteArray is a simple implementation of the data interface
+type ByteArray struct {
+	Data []byte // The byte array with the data
 }
 
-func (c *common) init() {
-	c.creators = make(map[string]*Creator)
-	c.mutex = &sync.Mutex{}
-}
+// BinaryMarshal returns the byte array. Implements encoding.BinaryMarshaler.
+func (b *ByteArray) MarshalBinary() ([]byte, error) { return b.Data, nil }
 
-// GetCreators return a map of all the known creators keyed on domain.
-func (c *common) GetCreators() map[string]*Creator {
-	return c.creators
-}
-
-// getCreator takes a domain name and returns the associated creator. If a
-// creator does not exist then nil is returned.
-func (c *common) getCreator(domain string) (*Creator, error) {
-	return c.creators[domain], nil
-}
+// BinaryMarshal returns the byte array. Implements owid.Marshaler.
+func (b *ByteArray) MarshalOwid() ([]byte, error) { return b.Data, nil }

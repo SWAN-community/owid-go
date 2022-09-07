@@ -19,23 +19,25 @@ package owid
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/SWAN-community/common-go"
 )
 
-// HandlerNodesJSON is a handler that returns a list of all the alive nodes
-// which is then used to serialize to JSON.
-func HandlerOwidsJSON(s *Services) http.HandlerFunc {
+// HandlerSignersAsJSON is a handler that returns a list of all the known
+// domains that relate to signers in JSON format.
+func HandlerSigners(s *Services) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		j, err := getJSON(s)
+		j, err := getSignersAsJSON(s)
 		if err != nil {
-			returnAPIError(s, w, err, http.StatusInternalServerError)
+			common.ReturnServerError(w, err)
 			return
 		}
-		sendResponse(s, w, "application/json", j)
+		common.SendJS(w, j)
 	}
 }
 
-func getJSON(s *Services) ([]byte, error) {
-	j, err := json.Marshal(s.store.GetCreators())
+func getSignersAsJSON(s *Services) ([]byte, error) {
+	j, err := json.Marshal(s.store.GetSigners())
 	if err != nil {
 		return nil, err
 	}

@@ -16,11 +16,29 @@
 
 package owid
 
-// Access interface for validating entitlement to access the network.
-type Access interface {
+import (
+	"sync"
+)
 
-	// GetAllowed returns true if the accessKey is allowed access to the SWIFT
-	// network, otherwise false. If false is returned then the error will
-	// provide the reason.
-	GetAllowed(accessKey string) (bool, error)
+// storeBase is a partial implementation of owid.Store for use with other more
+// complex implementations, and the test methods.
+type storeBase struct {
+	signers map[string]*Signer // Map of domain names to signers
+	mutex   *sync.Mutex        // mutual-exclusion lock used for refresh
+}
+
+func (s *storeBase) init() {
+	s.signers = make(map[string]*Signer)
+	s.mutex = &sync.Mutex{}
+}
+
+// GetSigners returns a map of all the known signers keyed on domain.
+func (s *storeBase) GetSigners() map[string]*Signer {
+	return s.signers
+}
+
+// getSigner takes a domain name and returns the associated Signer. If a
+// Signer does not exist then nil is returned.
+func (s *storeBase) getSigner(domain string) (*Signer, error) {
+	return s.signers[domain], nil
 }

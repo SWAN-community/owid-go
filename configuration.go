@@ -23,16 +23,12 @@ import (
 	"github.com/SWAN-community/config-go"
 )
 
-// Configuration details from appsettings.json for access to the AWS or Azure
-// storage.
+// Configuration details from appsettings.json for access to the AWS, Azure, or
+// GCP storage.
 type Configuration struct {
-	config.Common   `mapstructure:",squash"`
-	Scheme          string `mapstructure:"scheme"` // The scheme to use for requests
-	BackgroundColor string `mapstructure:"backgroundColor"`
-	MessageColor    string `mapstructure:"messageColor"`
-	Debug           bool   `mapstructure:"debug"`
-	OwidFile        string `mapstructure:"owidFile"`
-	OwidStore       string `mapstructure:"owidStore"`
+	config.Base `mapstructure:",squash"`
+	OwidFile    string `mapstructure:"owidFile"`
+	OwidStore   string `mapstructure:"owidStore"`
 }
 
 // NewConfig creates a new instance of configuration from the file provided. If
@@ -47,23 +43,8 @@ func NewConfig(file string) Configuration {
 	return c
 }
 
-// Validate confirms that the configuration is usable.
-func (c *Configuration) Validate() error {
-	var err error
+// Log prints non sensitive configuration fields to the logger.
+func (c *Configuration) Log() {
 	log.Printf("OWID:Debug Mode: %t\n", c.Debug)
-	if err == nil {
-		if c.BackgroundColor != "" {
-			log.Printf("OWID:BackgroundColor: %s\n", c.BackgroundColor)
-		} else {
-			err = fmt.Errorf("OWID BackgroundColor missing in config")
-		}
-	}
-	if err == nil {
-		if c.MessageColor != "" {
-			log.Printf("OWID:MessageColor: %s\n", c.MessageColor)
-		} else {
-			err = fmt.Errorf("OWID MessageColor missing in config")
-		}
-	}
-	return err
+	log.Printf("OWID:File : %s\n", c.OwidFile)
 }

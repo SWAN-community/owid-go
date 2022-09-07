@@ -1,5 +1,5 @@
 /* ****************************************************************************
- * Copyright 2020 51 Degrees Mobile Experts Limited (51degrees.com)
+ * Copyright 2021 51 Degrees Mobile Experts Limited (51degrees.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License.
@@ -16,27 +16,12 @@
 
 package owid
 
-// AccessSimple is a implementation of swift.Access for testing where a list
-// of keys returns true, and all others return false.
-type AccessSimple struct {
-	validKeys map[string]bool // A list of the keys that are valid.
-}
+// Marshaler used to obtain only the data from the target of the OWID that needs
+// to be signed or verified. The normal encoding.BinaryMarshaler implementation
+// may well also contain the OWID as well and there can not be used for the
+// purpose of obtaining the data from the target for signing or verification.
+type Marshaler interface {
 
-// NewAccessSimple creates a new instance of the AccessSimple structure
-func NewAccessSimple(validKeys []string) *AccessSimple {
-	var a AccessSimple
-
-	m := make(map[string]bool)
-	for _, k := range validKeys {
-		m[k] = true
-	}
-	a.validKeys = m
-
-	return &a
-}
-
-// GetAllowed validates access key can access swift handlers
-func (a *AccessSimple) GetAllowed(accessKey string) (bool, error) {
-	return a.validKeys[accessKey], nil
-
+	// Marshal the data to an OWID for signing or verification.
+	MarshalOwid() ([]byte, error)
 }

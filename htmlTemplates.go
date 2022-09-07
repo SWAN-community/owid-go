@@ -26,7 +26,7 @@ var registerTemplate = newHTMLTemplate("register", `
 <html>
 <head>
     <meta charset="utf-8" />
-    <title>Shared Web State - Register Node</title>
+    <title>Open Web ID - Register Signer</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="icon" href="data:;base64,=">
 </head>
@@ -35,8 +35,8 @@ var registerTemplate = newHTMLTemplate("register", `
     font-family: nunito, sans-serif;
     font-size: 16px;
     font-weight: 600;
-    background-color: {{ .Services.Config.BackgroundColor }};
-    color: {{ .Services.Config.MessageColor }};
+    background-color: white;
+    color: black;
     height: 100vh;         
     display: flex;
     justify-content: center;
@@ -46,9 +46,9 @@ var registerTemplate = newHTMLTemplate("register", `
         <tr>
             <td colspan="3">
                 {{ if not .ReadOnly }}
-                <p>Register creator '{{ .Domain }}' to a organization.</p>
+                <p>Register '{{ .Domain }}' as an OWID signer</p>
                 {{ else }}
-                <p>Success. Creator '{{ .Domain }}' registered to organization name '{{ .Name }}'.</p>
+                <p>Signer '{{ .Domain }}' registered as OWID signer for organization '{{ .Name }}'</p>
                 {{ end }}
             </td>
         </tr>
@@ -57,7 +57,7 @@ var registerTemplate = newHTMLTemplate("register", `
                 <p><label for="name">Organization Name</label></p>
             </td>
             <td>
-                <p><input type="text" maxlength="20" id="name" name="name" value="{{ .Name }}" {{ if .ReadOnly }}disabled{{ end }}></p>
+                <p><input type="text" minlength="{{ .MinNameLength }}" maxlength="{{ .MaxNameLength }}" id="name" name="name" value="{{ .Name }}" {{ if .ReadOnly }}disabled{{ end }}></p>
             </td>
             <td>
                 {{ if .DisplayErrors }}
@@ -67,14 +67,14 @@ var registerTemplate = newHTMLTemplate("register", `
         </tr>
         <tr>
             <td>
-                <p><label for="name">Contract URL</label></p>
+                <p><label for="name">Terms URL</label></p>
             </td>
             <td>
-                <p><input type="text" maxlength="200" id="contractURL" name="contractURL" value="{{ .ContractURL }}" {{ if .ReadOnly }}disabled{{ end }}></p>
+                <p><input type="text" maxlength="{{ .MaxTermsURLLength }}" id="termsURL" name="termsURL" value="{{ .TermsURL }}" {{ if .ReadOnly }}disabled{{ end }}></p>
             </td>
             <td>
                 {{ if .DisplayErrors }}
-                <p>{{ .ContractURLError }}</p>
+                <p>{{ .TermsURLError }}</p>
                 {{ end }}
             </td>
         </tr>

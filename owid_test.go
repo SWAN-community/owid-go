@@ -18,156 +18,171 @@ package owid
 
 import (
 	"bytes"
+	"encoding/gob"
+	"encoding/json"
 	"fmt"
 	"testing"
 )
 
+// TestOWIDSerialize checks that an OWID can be serialized and deserialized
+// using standard Go methods.
+func TestOWIDSerialize(t *testing.T) {
+	s, o := testOWIDCreateAndVerify(t)
+	t.Run("json", func(t *testing.T) {
+		b, err := json.Marshal(o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var a OWID
+		err = json.Unmarshal(b, &a)
+		if err != nil {
+			t.Fatal(err)
+		}
+		testOWIDValidateDeserialized(t, s, &a)
+	})
+	t.Run("binary", func(t *testing.T) {
+		var b bytes.Buffer
+		err := gob.NewEncoder(&b).Encode(o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var a OWID
+		err = gob.NewDecoder(&b).Decode(&a)
+		if err != nil {
+			t.Fatal(err)
+		}
+		testOWIDValidateDeserialized(t, s, &a)
+	})
+}
+
 func TestOWIDVerify(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	o, err := newOWID(c)
-	if err != nil {
-		t.Fatal(err)
-	}
-	v, err := o.VerifyWithPublicKey(c.publicKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v != true {
-		t.Fatal(fmt.Errorf("OWID did not pass verification"))
-	}
+	testOWIDCreateAndVerify(t)
 }
 
 func TestOWIDBase64(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	o, err := newOWID(c)
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, o := testOWIDCreateAndVerify(t)
 	a, err := o.AsBase64()
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := FromBase64(a)
+	b, err := FromBase64(a, testByteArray)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if o.compare(b) == false {
-		t.Error("encode and decode failed")
+		t.Fatal("encode and decode failed")
 	}
 }
 
 func TestOWIDString(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
+	_, o := testOWIDCreateAndVerify(t)
+	err := o.Validate()
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := newOWID(c)
+	b, err := FromBase64(o.AsString(), testByteArray)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := FromBase64(o.AsString())
+	err = b.Validate()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if o.compare(b) == false {
-		t.Error("encode and decode failed")
+		t.Fatal("encode and decode failed")
 	}
 }
 
 func TestOWIDBase64CorruptShort(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	o, err := newOWID(c)
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, o := testOWIDCreateAndVerify(t)
 	a, err := o.AsBase64()
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = FromBase64(a[:len(a)-1])
+	_, err = FromBase64(a[:len(a)-1], testByteArray)
 	if err == nil {
-		t.Fatal(fmt.Errorf("corrupt base 64 string should result in error"))
+		t.Fatal("corrupt base 64 string should result in error")
 	}
 }
 
 func TestOWIDBase64CorruptMiss(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	o, err := newOWID(c)
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, o := testOWIDCreateAndVerify(t)
 	a, err := o.AsBase64()
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = FromBase64(a[1:])
+	_, err = FromBase64(a[1:], testByteArray)
 	if err == nil {
-		t.Fatal(fmt.Errorf("corrupt base 64 string should result in error"))
+		t.Fatal("corrupt base 64 string should result in error")
 	}
 }
 
 func TestOWIDByteArrayCorruptReplace(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	o, err := newOWID(c)
-	if err != nil {
-		t.Fatal(err)
-	}
-	a, err := o.AsByteArray()
+	s, o := testOWIDCreateAndVerify(t)
+	a, err := o.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
 	}
 	i := 0
 	for i < len(a) {
-		err = corrupt(c, a, i)
+		err = testOWIDCorrupt(s, a, i)
 		if err == nil {
-			t.Fatal(fmt.Errorf("corrupt byte array should result in error"))
+			t.Fatal("corrupt byte array should result in error")
 		}
 		i++
 	}
 }
 
-func newOWID(creator *Creator) (*OWID, error) {
-	c, err := NewCryptoSignOnly(creator.privateKey)
+// testOWIDCreateAndVerify create the OWID and verify it before returning it.
+func testOWIDCreateAndVerify(t *testing.T) (*Signer, *OWID) {
+	s := NewTestDefaultSigner(t)
+	o, err := s.CreateOWIDandSign(testByteArray)
 	if err != nil {
-		return nil, err
+		t.Fatal(err)
 	}
-	payload := []byte(testPayload)
-	o, err := NewOwid(testDomain, testDate, payload)
+	v, err := s.Verify(o)
 	if err != nil {
-		return nil, err
+		t.Fatal(err)
 	}
-	o.Sign(c, nil)
-	return o, nil
+	if v != true {
+		t.Fatal("OWID did not pass verification")
+	}
+	return s, o
 }
 
-func corrupt(creator *Creator, a []byte, i int) error {
-	a[i] = a[i] + 1
-	n, err := FromByteArray(a)
+// Corrupt the test byte array provided at the character position and then
+// verify the data with the signer returning the error.
+func testOWIDCorrupt(signer *Signer, signature []byte, position int) error {
+	signature[position] = signature[position] + 1
+	n, err := FromByteArray(signature, testByteArray)
 	if err != nil {
 		return err
 	}
-	_, err = n.VerifyWithPublicKey(creator.publicKey)
-	return err
+	c, err := signer.currentKeys()
+	if err != nil {
+		return err
+	}
+	r, err := n.VerifyWithPublicKey(c.PublicKey)
+	if err != nil {
+		return err
+	}
+	if r {
+		return fmt.Errorf("corrupt signature should not pass verification")
+	}
+	return nil
 }
 
-func (o *OWID) compare(other *OWID) bool {
-	return o.Version == other.Version &&
-		o.Date == other.Date &&
-		bytes.Equal(o.Signature, other.Signature) &&
-		bytes.Equal(o.Payload, other.Payload)
+func testOWIDValidateDeserialized(t *testing.T, s *Signer, o *OWID) {
+	err := o.Validate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	o.Target = testByteArray
+	v, err := s.Verify(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !v {
+		t.Fatal("OWID should pass verification after deserialization")
+	}
 }

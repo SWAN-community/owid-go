@@ -17,99 +17,109 @@
 package owid
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
+
+	"github.com/SWAN-community/common-go"
 )
 
-// HandlerRegister - Handler for the registering of a domain.
+// HandlerRegister handles registering of a domain as a signer.
 func HandlerRegister(s *Services) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 
-		var d Register
-		d.Services = s
-		d.Domain = r.Host
-		d.Name = ""
+		// The data model used with the registration template.
+		m := Register{
+			Services:          s,
+			Domain:            r.Host,
+			MinNameLength:     minNameLength,
+			MaxNameLength:     maxNameLength,
+			MaxTermsURLLength: maxTermsURLLength}
 
 		// Check that the domain has not already been registered.
-		n, err := s.store.GetCreator(r.Host)
+		g, err := s.store.GetSigner(r.Host)
 		if err != nil {
-			returnServerError(s, w, err)
+			// Problem getting the signer for the host.
+			common.ReturnServerError(w, err)
 			return
 		}
-		if n != nil {
+		if g != nil {
+			// The host is already registered. It can't be registered again
+			// so return an application error.
+			common.ReturnApplicationError(w, &common.HttpError{
+				Message: fmt.Sprintf("Domain '%s' already registered", g.Domain),
+				Code:    http.StatusNotFound})
 			return
 		}
 
 		// Get any values from the form.
 		err = r.ParseForm()
 		if err != nil {
-			returnServerError(s, w, err)
+			common.ReturnServerError(w, err)
 			return
 		}
-		d.DisplayErrors = len(r.Form) > 0
 
-		// Get the OWID creator legal name.
-		d.Name = r.FormValue("name")
-		if len(d.Name) <= 5 {
-			d.NameError = "Name must be longer than 5 characters"
-		} else if len(d.Name) > 20 {
-			d.NameError = "Name can not be longer than 20 characters"
+		// Get the OWID signer legal name.
+		m.Name = r.Form.Get("name")
+		if len(m.Name) <= minNameLength || len(m.Name) > maxNameLength {
+			m.NameError = nameLengthMessage
 		}
 
-		// Get the OWID creater contract URL use for the creation of data.
-		d.ContractURL = r.FormValue("contractURL")
-		_, err = url.Parse(d.ContractURL)
-		if err != nil {
-			d.ContractURLError = err.Error()
-		}
-
-		// If the form data is valid then store the new node.
-		if d.NameError == "" {
-			err := storeCreator(s, &d)
+		// Get the OWID signer terms URL.
+		if len(r.Form.Get("termsURL")) > maxTermsURLLength {
+			m.TermsURLError = termsLengthMessage
+		} else {
+			u, err := url.ParseRequestURI(r.Form.Get("termsURL"))
 			if err != nil {
-				returnServerError(s, w, err)
+				m.TermsURLError = termsInvalidMessage
+			} else {
+				m.TermsURL = u.String()
 			}
 		}
 
-		// Return the HTML page.
-		sendHTMLTemplate(s, w, registerTemplate, &d)
+		// If the form values are valid then store the new signer.
+		if m.NameError == "" && m.TermsURLError == "" {
+			err := registerNewSigner(s, &m)
+			if err != nil {
+				// The data passed validation but could not be stored due to
+				// an error within the server. Response with some information
+				// to indicate to the operator what has happened. This is
+				// possible in the register handler because users will never
+				// access it. It is only ever called when the signer domain is
+				// being setup.
+				common.ReturnApplicationError(w, &common.HttpError{
+					Request: r,
+					Log:     true,
+					Message: "Error storing new signer. " +
+						"Verify server and storage configuration and restart.",
+					Error: err,
+					Code:  http.StatusInternalServerError})
+			}
+		}
+
+		// Return the HTML page using the template to work out how to present
+		// the result as either a newly added signer, a request for new signer
+		// information, or validation results.
+		common.SendHTMLTemplate(w, registerTemplate, &m)
 	}
 }
 
-func storeCreator(s *Services, d *Register) error {
+func registerNewSigner(s *Services, d *Register) error {
 
-	// Create the new node ready to have it's secret added and stored.
-	cry, err := NewCrypto()
+	// Create the new signer with the registration information provided.
+	k, err := newKeys()
 	if err != nil {
-		d.Error = err.Error()
 		return err
 	}
-	privateKey, err := cry.privateKeyToPemString()
+	g, err := newSigner(d.Domain, d.Name, d.TermsURL, k)
 	if err != nil {
-		d.Error = err.Error()
-		return err
-	}
-	publicKey, err := cry.publicKeyToPemString()
-	if err != nil {
-		d.Error = err.Error()
-		return err
-	}
-	c := newCreator(
-		d.Domain,
-		privateKey,
-		publicKey,
-		d.Name,
-		d.ContractURL)
-	if err != nil {
-		d.Error = err.Error()
 		return err
 	}
 
-	// Store the node and it successful mark the registration process as
+	// Store the signer and if successful mark the registration process as
 	// complete.
-	err = s.store.setCreator(c)
+	err = s.store.addSigner(g)
 	if err != nil {
-		d.Error = err.Error()
 		return err
 	} else {
 		d.ReadOnly = true
