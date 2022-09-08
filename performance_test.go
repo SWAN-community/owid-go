@@ -18,7 +18,6 @@ package owid
 
 import (
 	"fmt"
-	"log"
 	"strings"
 	"testing"
 	"time"
@@ -26,6 +25,10 @@ import (
 
 // TestPerformanceSigning performance reporting for signing operations.
 func TestPerformanceSigning(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping signing performance in short mode")
+		return
+	}
 	seconds := 1
 	for l := 0; l <= 2000; l += 1000 {
 		t.Run(
@@ -38,6 +41,10 @@ func TestPerformanceSigning(t *testing.T) {
 
 // TestPerformanceVerify performance reporting for verify operations.
 func TestPerformanceVerify(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping verify performance in short mode")
+		return
+	}
 	seconds := 1
 	for l := 0; l <= 2000; l += 1000 {
 		t.Run(
@@ -66,7 +73,6 @@ func testPerformanceVerify(t *testing.T, d time.Duration, l int) {
 		d,
 		l)
 	t.Log(m)
-	log.Println(m)
 }
 
 func testPerformanceSigning(t *testing.T, d time.Duration, l int) {
@@ -77,7 +83,6 @@ func testPerformanceSigning(t *testing.T, d time.Duration, l int) {
 		d,
 		l)
 	t.Log(m)
-	log.Println(m)
 }
 
 // testPerformanceLoop creates a signer and then loops for the duration signing
