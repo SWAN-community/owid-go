@@ -40,8 +40,8 @@ func init() {
 type OWID struct {
 	Version   byte      // The byte version of the OWID.
 	Domain    string    // Domain associated with the creator.
-	TimeStamp time.Time // The date and time to the nearest minute in UTC of the creation.
-	Signature []byte    // Signature for this OWID and it's ancestor from the creator.
+	TimeStamp time.Time // The date and time to the nearest minute in UTC that the OWID was signed.
+	Signature []byte    // Signature for this OWID and the data returned from the target.
 	Target    Marshaler // Instance of the object that contains the data related to the OWID.
 }
 
@@ -101,10 +101,14 @@ func (o *OWID) Validate() error {
 	return nil
 }
 
-// Sign the data provided with the crypto instance and update the signature of the OWID.
+// Sign the data provided with the crypto instance and update the signature of
+// the OWID. The timestamp is updated to the current time. The domain and
+// timestamp are appended to the target data before signing. The OWID is only
+// considered valid if the timestamp and domain also match.
 // crypto instance to use for signing
 func (o *OWID) Sign(crypto *Crypto) error {
-	d, err := o.Target.MarshalOwid()
+	o.TimeStamp = common.GetDateFromMinutes(common.GetDateInMinutes(time.Now()))
+	d, err := o.getTargetAndOwidData()
 	if err != nil {
 		return err
 	}
@@ -119,7 +123,7 @@ func (o *OWID) Sign(crypto *Crypto) error {
 // crypto instance to use for verification
 // Returns true if the signature matches the data, otherwise false.
 func (o *OWID) VerifyWithCrypto(crypto *Crypto) (bool, error) {
-	d, err := o.Target.MarshalOwid()
+	d, err := o.getTargetAndOwidData()
 	if err != nil {
 		return false, err
 	}
@@ -371,4 +375,29 @@ func (o *OWID) compare(other *OWID) bool {
 		o.Domain == other.Domain &&
 		o.GetTimeStampInMinutes() == other.GetTimeStampInMinutes() &&
 		bytes.Equal(o.Signature, other.Signature)
+}
+
+// getTargetAndOwidData combines the target data and OWID data.
+// The domain and timestamp associated with the OWID also need to be included in
+// the data that is passed to signing or verification. This method assembles the
+// byte array for the sign and verify methods to include both sets of data.
+func (o *OWID) getTargetAndOwidData() ([]byte, error) {
+	var b bytes.Buffer
+	a, err := o.Target.MarshalOwid()
+	if err != nil {
+		return nil, err
+	}
+	err = common.WriteByteArrayNoLength(&b, a)
+	if err != nil {
+		return nil, err
+	}
+	err = common.WriteString(&b, o.Domain)
+	if err != nil {
+		return nil, err
+	}
+	err = common.WriteDateToUInt32(&b, o.TimeStamp)
+	if err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
 }

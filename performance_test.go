@@ -18,25 +18,42 @@ package owid
 
 import (
 	"fmt"
+	"log"
+	"strings"
 	"testing"
 	"time"
 )
 
 // TestPerformanceSigning performance reporting for signing operations.
 func TestPerformanceSigning(t *testing.T) {
-	t.Run("1s", func(t *testing.T) { testPerformanceSigning(t, time.Second) })
+	seconds := 1
+	for l := 0; l <= 2000; l += 1000 {
+		t.Run(
+			fmt.Sprintf("%ds %d", seconds, l),
+			func(t *testing.T) {
+				testPerformanceSigning(t, time.Duration(seconds)*time.Second, l)
+			})
+	}
 }
 
 // TestPerformanceVerify performance reporting for verify operations.
 func TestPerformanceVerify(t *testing.T) {
-	t.Run("1s", func(t *testing.T) { testPerformanceVerify(t, time.Second) })
+	seconds := 1
+	for l := 0; l <= 2000; l += 1000 {
+		t.Run(
+			fmt.Sprintf("%ds %d", seconds, l),
+			func(t *testing.T) {
+				testPerformanceVerify(t, time.Duration(seconds)*time.Second, l)
+			})
+	}
 }
 
 // testPerformanceSigning reports the number of signings complete in the
 // duration.
-func testPerformanceSigning(t *testing.T, d time.Duration) {
+func testPerformanceVerify(t *testing.T, d time.Duration, l int) {
+	b := &ByteArray{Data: []byte(strings.Repeat("#", l))}
 	s := NewTestDefaultSigner(t)
-	o, err := s.CreateOWIDandSign(testByteArray)
+	o, err := s.CreateOWIDandSign(b)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,28 +61,37 @@ func testPerformanceSigning(t *testing.T, d time.Duration) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := fmt.Sprintf("completed '%d' signings in '%v'",
+	m := fmt.Sprintf("completed '%d' verifications in '%v' with length '%d'",
 		testPerformanceVerifyLoop(t, d, s, o),
-		d)
+		d,
+		l)
 	t.Log(m)
+	log.Println(m)
 }
 
-func testPerformanceVerify(t *testing.T, d time.Duration) {
-	m := fmt.Sprintf("completed '%d' verifications in '%v'",
-		testPerformanceSignLoop(t, d),
-		d)
+func testPerformanceSigning(t *testing.T, d time.Duration, l int) {
+	b := &ByteArray{Data: []byte(strings.Repeat("#", l))}
+	s := NewTestDefaultSigner(t)
+	m := fmt.Sprintf("completed '%d' signings in '%v' with length '%d'",
+		testPerformanceSignLoop(t, s, d, b),
+		d,
+		l)
 	t.Log(m)
+	log.Println(m)
 }
 
 // testPerformanceLoop creates a signer and then loops for the duration signing
 // the test data returning the number of iterations that could be completed in
 // the duration.
-func testPerformanceSignLoop(t *testing.T, d time.Duration) int {
-	s := NewTestDefaultSigner(t)
+func testPerformanceSignLoop(
+	t *testing.T,
+	s *Signer,
+	d time.Duration,
+	b Marshaler) int {
 	e := time.Now().Add(d)
 	i := 0
 	for time.Now().Before(e) {
-		o, err := s.CreateOWIDandSign(testByteArray)
+		o, err := s.CreateOWIDandSign(b)
 		if err != nil {
 			t.Fatal(err)
 		}
