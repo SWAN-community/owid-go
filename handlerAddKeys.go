@@ -34,7 +34,7 @@ func HandlerAddKeys(s *Services) http.HandlerFunc {
 
 		// Get the signer using the common method. This will handle any HTTP
 		// failure responses.
-		g := s.getSigner(w, r)
+		g := s.GetSignerHttp(w, r)
 		if g == nil {
 			return
 		}

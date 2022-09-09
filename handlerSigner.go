@@ -26,7 +26,7 @@ import (
 // HandlerSigner Returns the public information associated with the creator.
 func HandlerSigner(s *Services) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		g := s.getSigner(w, r)
+		g := s.GetSignerHttp(w, r)
 		if g == nil {
 			return
 		}

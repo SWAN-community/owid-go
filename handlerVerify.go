@@ -36,7 +36,7 @@ type verify struct {
 func HandlerVerify(s *Services) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var v verify
-		g := s.getSigner(w, r)
+		g := s.GetSignerHttp(w, r)
 		if g == nil {
 			return
 		}

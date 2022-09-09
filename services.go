@@ -17,7 +17,11 @@
 package owid
 
 import (
+	"fmt"
+	"net/http"
+
 	"github.com/SWAN-community/access-go"
+	"github.com/SWAN-community/common-go"
 )
 
 // Services references all the information needed for OWID methods.
@@ -38,4 +42,29 @@ func NewServices(config *Configuration, store Store, access access.Access) *Serv
 // GetSigner returns the signer from the store used by the service.
 func (s *Services) GetSigner(host string) (*Signer, error) {
 	return s.store.GetSigner(host)
+}
+
+// GetSignerHttp for the request writing an error to the response if there is no
+// signer for the host associated with the request.
+func (s *Services) GetSignerHttp(w http.ResponseWriter, r *http.Request) *Signer {
+	g, err := s.store.GetSigner(r.Host)
+	if err != nil {
+		common.ReturnServerError(w, err)
+		return nil
+	}
+	if g == nil {
+		common.ReturnApplicationError(w, &common.HttpError{
+			// Log this application error as it indicates the hosting
+			// environment is misconfigured. The request should never have
+			// reached the application.
+			Log:     true,
+			Request: r,
+			Code:    http.StatusBadRequest,
+			Message: fmt.Sprintf("no signer available for '%s'", r.Host),
+			Error: fmt.Errorf(
+				"use register handler to create signer for domain '%s'",
+				r.Host)})
+		return nil
+	}
+	return g
 }

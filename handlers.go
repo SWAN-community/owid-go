@@ -19,8 +19,6 @@ package owid
 import (
 	"fmt"
 	"net/http"
-
-	"github.com/SWAN-community/common-go"
 )
 
 // AddHandlers to the http default mux for shared web state.
@@ -35,29 +33,4 @@ func AddHandlers(s *Services) {
 			http.HandleFunc(b+"owids", HandlerSigners(s))
 		}
 	}
-}
-
-// getSigner for the request writing an error to the response if there is no
-// signer for the host associated with the request.
-func (s *Services) getSigner(w http.ResponseWriter, r *http.Request) *Signer {
-	g, err := s.store.GetSigner(r.Host)
-	if err != nil {
-		common.ReturnServerError(w, err)
-		return nil
-	}
-	if g == nil {
-		common.ReturnApplicationError(w, &common.HttpError{
-			// Log this application error as it indicates the hosting
-			// environment is misconfigured. The request should never have
-			// reached the application.
-			Log:     true,
-			Request: r,
-			Code:    http.StatusBadRequest,
-			Message: fmt.Sprintf("no signer available for '%s'", r.Host),
-			Error: fmt.Errorf(
-				"use register handler to create signer for domain '%s'",
-				r.Host)})
-		return nil
-	}
-	return g
 }
