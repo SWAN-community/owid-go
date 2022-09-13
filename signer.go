@@ -78,18 +78,6 @@ func newSigner(
 	return s, nil
 }
 
-// UnmarshalJSON prevents the signer being unmarshalled. A safety feature to
-// reduce the risk of accidental exposure of the private keys.
-func (s *Signer) UnmarshalJSON(data []byte) error {
-	return fmt.Errorf("signer can not be unmarshalled")
-}
-
-// MarshalJSON prevents the signer being marshalled. A safety feature to reduce
-// the risk of accidental exposure of the private keys.
-func (s *Signer) MarshalJSON() ([]byte, error) {
-	return nil, fmt.Errorf("signer can not be marshalled")
-}
-
 // NewOwid returns a new unsigned OWID associated with the signer.
 // target associated with the newly created OWID
 // returns the new OWID ready to be signed
