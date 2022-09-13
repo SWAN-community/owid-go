@@ -78,7 +78,7 @@ func HandlerAddKeys(s *Services) http.HandlerFunc {
 		if !f {
 			common.ReturnServerError(
 				w,
-				fmt.Errorf("new key not found: %w", err))
+				fmt.Errorf("new key not found"))
 			return
 		}
 

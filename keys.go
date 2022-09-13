@@ -67,7 +67,7 @@ func newKeys() (*Keys, error) {
 	return &Keys{
 		PrivateKey: privateKey,
 		PublicKey:  publicKey,
-		Created:    time.Now()}, nil
+		Created:    time.Now().UTC()}, nil
 }
 
 // NewCryptoSignOnly creates a new instance of the Crypto structure
@@ -109,7 +109,7 @@ func (k *Keys) SubjectPublicKeyInfo() (string, error) {
 func (k *Keys) equal(other *Keys) bool {
 	return k.PrivateKey == other.PrivateKey &&
 		k.PublicKey == other.PublicKey &&
-		k.Created == other.Created
+		k.Created.Equal(other.Created)
 }
 
 // orderKeys creates an array of keys based on the time elapsed between the
