@@ -54,7 +54,7 @@ func TestSignerHandler(t *testing.T) {
 	}
 
 	// Decompress the response and turn it into JSON map.
-	d := decompressAsMap(t, rr)
+	d := common.ResponseAsMapTest(t, rr)
 
 	if d == nil {
 		t.Fatal("no response returned")

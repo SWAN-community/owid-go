@@ -19,7 +19,6 @@ package owid
 import (
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -64,7 +63,7 @@ func testRegisterOK(
 	}
 
 	// Decompress the response and get the string.
-	v := decompressAsString(t, rr)
+	v := common.ResponseAsStringTest(t, rr)
 	if v == "" || strings.Contains(v, "html") == false {
 		t.Fatal("handler didn't return HTML")
 	}
@@ -127,16 +126,7 @@ func testRegisterGetResponse(
 	s := getServicesEmpty(t)
 
 	// Send the new name to the domain.
-	values := url.Values{}
-	values.Set("name", name)
-	values.Set("termsURL", termsUrl)
-	return s, common.HTTPTest(
-		t,
-		method,
-		domain,
-		"/owid/api/v1/register",
-		values,
-		HandlerRegister(s))
+	return s, RegisterTestSignerResponse(t, s, domain, method, name, termsUrl)
 }
 
 func testRegisterCheckContent(
@@ -145,7 +135,7 @@ func testRegisterCheckContent(
 	content string) {
 
 	// Decompress the response and get the string.
-	v := decompressAsString(t, rr)
+	v := common.ResponseAsStringTest(t, rr)
 	if v == "" || strings.Contains(v, "html") == false {
 		t.Fatal("handler didn't return HTML")
 	}

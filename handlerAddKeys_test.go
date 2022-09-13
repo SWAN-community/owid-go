@@ -19,15 +19,12 @@ package owid
 import (
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"testing"
-
-	"github.com/SWAN-community/common-go"
 )
 
 func TestAddKeysHandler(t *testing.T) {
 	t.Run("all good", func(t *testing.T) {
-		s, rr := testAddKeysGetResponse(t, testDomain, testAccessKey)
+		s, rr := testAddKeysGetResponse(t, testDomain, "GET", testAccessKey)
 		if rr.Code != http.StatusOK {
 			t.Fatalf("expected '%d' status", http.StatusOK)
 		}
@@ -40,14 +37,14 @@ func TestAddKeysHandler(t *testing.T) {
 		}
 	})
 	t.Run("bad access key", func(t *testing.T) {
-		_, rr := testAddKeysGetResponse(t, testDomain, "B")
+		_, rr := testAddKeysGetResponse(t, testDomain, "GET", "B")
 		if rr.Code != http.StatusNetworkAuthenticationRequired {
 			t.Fatalf("expected '%d' status",
 				http.StatusNetworkAuthenticationRequired)
 		}
 	})
 	t.Run("bad domain", func(t *testing.T) {
-		_, rr := testAddKeysGetResponse(t, "not.exist", testAccessKey)
+		_, rr := testAddKeysGetResponse(t, "not.exist", "GET", testAccessKey)
 		if rr.Code != http.StatusBadRequest {
 			t.Fatalf("expected '%d' status", http.StatusBadRequest)
 		}
@@ -57,19 +54,12 @@ func TestAddKeysHandler(t *testing.T) {
 func testAddKeysGetResponse(
 	t *testing.T,
 	domain string,
+	method string,
 	accessKey string) (*Services, *httptest.ResponseRecorder) {
 
 	// Get the services for the test without any signers already added.
 	s := getServicesWithDefault(t)
 
 	// Send the new name to the domain.
-	values := url.Values{}
-	values.Set("accessKey", accessKey)
-	return s, common.HTTPTest(
-		t,
-		"GET",
-		domain,
-		"/owid/api/v1/addkeys",
-		values,
-		HandlerAddKeys(s))
+	return s, AddKeysTestResponse(t, s, domain, method, accessKey)
 }
