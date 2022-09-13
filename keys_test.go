@@ -31,6 +31,18 @@ func TestKeys(t *testing.T) {
 	t.Run("copied", func(t *testing.T) {
 		testKeys(t, testKeysCopy(t, testKeysCreate(t, common.IoDateBase)))
 	})
+	t.Run("equal", func(t *testing.T) {
+		b := time.Now()
+		k := testKeysCreate(t, b.UTC())
+		c := *k
+		if !k.equal(&c) {
+			t.Fatal("keys should be equal")
+		}
+		c.Created = b
+		if !k.equal(&c) {
+			t.Fatal("keys should be equal")
+		}
+	})
 }
 
 func TestKeysOrder(t *testing.T) {
