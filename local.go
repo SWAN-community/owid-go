@@ -159,10 +159,11 @@ func createLocalStore(file string) error {
 		if _, err := os.Stat(path.Dir(file)); os.IsNotExist(err) {
 			os.MkdirAll(path.Dir(file), 0700)
 		}
-		_, err = os.Create(file)
+		f, err := os.Create(file)
 		if err != nil {
 			return err
 		}
+		defer f.Close()
 	}
 	return nil
 }
