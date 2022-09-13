@@ -137,3 +137,35 @@ func AddKeysTestResponse(
 		values,
 		HandlerAddKeys(s))
 }
+
+func StoreNewTestSigner(
+	t *testing.T,
+	store Store,
+	domain string,
+	name string,
+	termsUrl string) {
+	n := NewTestSigner(t, testDomain, testName, testTermsUrl)
+	err := store.addSigner(n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = store.refresh()
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, err := store.GetSigner(testDomain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := g.CreateOWIDandSign(&ByteArray{Data: []byte{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := g.Verify(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !v {
+		t.Fatal("verification should pass")
+	}
+}
