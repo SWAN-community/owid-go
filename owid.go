@@ -383,6 +383,9 @@ func (o *OWID) compare(other *OWID) bool {
 // byte array for the sign and verify methods to include both sets of data.
 func (o *OWID) getTargetAndOwidData() ([]byte, error) {
 	var b bytes.Buffer
+	if o.Target == nil {
+		return nil, fmt.Errorf("missing target")
+	}
 	a, err := o.Target.MarshalOwid()
 	if err != nil {
 		return nil, err
