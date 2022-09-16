@@ -113,7 +113,7 @@ func RegisterTestSignerResponse(
 	u, err := url.Parse(fmt.Sprintf(
 		"%s://%s/owid/api/v1/register",
 		s.config.Scheme,
-		testDomain))
+		domain))
 	q := &url.Values{}
 	q.Set("name", name)
 	q.Set("termsURL", termsUrl)
