@@ -32,17 +32,17 @@ import (
 func TestRegisterHandler(t *testing.T) {
 	t.Run("good", func(t *testing.T) {
 		d := time.Now()
-		s, rr := testRegisterGetResponse(t, "GET", testDomain, testName,
+		s, rr := testRegisterGetResponse(t, http.MethodGet, testDomain, testName,
 			testTermsUrl)
 		testRegisterOK(t, s, rr, testDomain, testName, testTermsUrl, d)
 	})
 	t.Run("terms too long", func(t *testing.T) {
-		testRegisterValidation(t, "GET", testDomain, testName,
+		testRegisterValidation(t, http.MethodGet, testDomain, testName,
 			strings.Repeat("#", maxTermsURLLength+1),
 			termsLengthMessage)
 	})
 	t.Run("terms invalid", func(t *testing.T) {
-		testRegisterValidation(t, "GET", testDomain, testName,
+		testRegisterValidation(t, http.MethodGet, testDomain, testName,
 			"bad",
 			termsInvalidMessage)
 	})

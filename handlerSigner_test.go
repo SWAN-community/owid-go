@@ -17,7 +17,9 @@
 package owid
 
 import (
+	"fmt"
 	"net/http"
+	"net/url"
 	"testing"
 
 	"github.com/SWAN-community/common-go"
@@ -37,11 +39,17 @@ func TestSignerHandler(t *testing.T) {
 	}
 
 	// Create the HTTP request for the test domain and run the handler.
+	u, err := url.Parse(fmt.Sprintf(
+		"%s://%s/owid/api/v1/signer",
+		s.config.Scheme,
+		testDomain))
+	if err != nil {
+		t.Fatal(err)
+	}
 	rr := common.HTTPTest(
 		t,
-		"GET",
-		testDomain,
-		"/owid/api/v1/signer",
+		http.MethodGet,
+		u,
 		nil,
 		HandlerSigner(s))
 

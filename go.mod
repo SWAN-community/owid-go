@@ -10,7 +10,7 @@ require (
 
 require (
 	github.com/SWAN-community/access-go v0.1.0
-	github.com/SWAN-community/common-go v0.1.2
+	github.com/SWAN-community/common-go v0.1.3
 	github.com/SWAN-community/config-go v0.1.5
 )
 

@@ -24,7 +24,7 @@ import (
 
 func TestAddKeysHandler(t *testing.T) {
 	t.Run("all good", func(t *testing.T) {
-		s, rr := testAddKeysGetResponse(t, testDomain, "GET", testAccessKey)
+		s, rr := testAddKeysGetResponse(t, testDomain, http.MethodGet, testAccessKey)
 		if rr.Code != http.StatusOK {
 			t.Fatalf("expected '%d' status", http.StatusOK)
 		}
@@ -37,14 +37,14 @@ func TestAddKeysHandler(t *testing.T) {
 		}
 	})
 	t.Run("bad access key", func(t *testing.T) {
-		_, rr := testAddKeysGetResponse(t, testDomain, "GET", "B")
+		_, rr := testAddKeysGetResponse(t, testDomain, http.MethodGet, "B")
 		if rr.Code != http.StatusNetworkAuthenticationRequired {
 			t.Fatalf("expected '%d' status",
 				http.StatusNetworkAuthenticationRequired)
 		}
 	})
 	t.Run("bad domain", func(t *testing.T) {
-		_, rr := testAddKeysGetResponse(t, "not.exist", "GET", testAccessKey)
+		_, rr := testAddKeysGetResponse(t, "not.exist", http.MethodGet, testAccessKey)
 		if rr.Code != http.StatusBadRequest {
 			t.Fatalf("expected '%d' status", http.StatusBadRequest)
 		}

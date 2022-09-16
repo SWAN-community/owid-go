@@ -17,6 +17,7 @@
 package owid
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -109,15 +110,22 @@ func RegisterTestSignerResponse(
 	method string,
 	name string,
 	termsUrl string) *httptest.ResponseRecorder {
-	values := url.Values{}
-	values.Set("name", name)
-	values.Set("termsURL", termsUrl)
+	u, err := url.Parse(fmt.Sprintf(
+		"%s://%s/owid/api/v1/register",
+		s.config.Scheme,
+		testDomain))
+	q := &url.Values{}
+	q.Set("name", name)
+	q.Set("termsURL", termsUrl)
+	u.RawQuery = q.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
 	return common.HTTPTest(
 		t,
 		method,
-		domain,
-		"/owid/api/v1/register",
-		values,
+		u,
+		nil,
 		HandlerRegister(s))
 }
 
@@ -127,14 +135,19 @@ func AddKeysTestResponse(
 	domain string,
 	method string,
 	accessKey string) *httptest.ResponseRecorder {
-	values := url.Values{}
-	values.Set("accessKey", accessKey)
+	u, err := url.Parse(fmt.Sprintf(
+		"%s://%s/owid/api/v1/register?accessKey=%s",
+		s.config.Scheme,
+		domain,
+		accessKey))
+	if err != nil {
+		t.Fatal(err)
+	}
 	return common.HTTPTest(
 		t,
 		method,
-		domain,
-		"/owid/api/v1/addkeys",
-		values,
+		u,
+		nil,
 		HandlerAddKeys(s))
 }
 
