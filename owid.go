@@ -38,11 +38,11 @@ func init() {
 
 // OWID structure which can be used as a node in a tree.
 type OWID struct {
-	Version   byte      // The byte version of the OWID.
-	Domain    string    // Domain associated with the creator.
-	TimeStamp time.Time // The date and time to the nearest minute in UTC that the OWID was signed.
-	Signature []byte    // Signature for this OWID and the data returned from the target.
-	Target    Marshaler // Instance of the object that contains the data related to the OWID.
+	Version   byte      `json:"version"`   // The byte version of the OWID.
+	Domain    string    `json:"domain"`    // Domain associated with the creator.
+	TimeStamp time.Time `json:"timestamp"` // The date and time to the nearest minute in UTC that the OWID was signed.
+	Signature []byte    `json:"signature"` // Signature for this OWID and the data returned from the target.
+	Target    Marshaler `json:"-"`         // Instance of the object that contains the data related to the OWID.
 }
 
 // AgeInMinutes returns the number of complete minutes that have elapsed since
@@ -61,6 +61,13 @@ func (o *OWID) GetTimeStampInMinutes() uint32 {
 // common.IoDateBase epoch.
 func (o *OWID) SetTimeStampInMinutes(t uint32) {
 	o.TimeStamp = common.GetDateFromMinutes(uint32(t))
+}
+
+// GetExpires returns the time the OWID expires by adding the number of days
+// to the timestamp. Used to advise the receiver of the data when the data
+// should no longer be used and should be purged.
+func (o *OWID) GetExpires(day int) time.Time {
+	return o.TimeStamp.Add(time.Duration(day) * 24 * time.Hour)
 }
 
 // NewUnsignedOwid creates a new unsigned instance of the OWID structure.
