@@ -96,7 +96,7 @@ func (s *Signer) SortKeys() {
 func (s *Signer) PublicKeys() ([]*PublicKey, error) {
 	p := make([]*PublicKey, len(s.Keys))
 	for i, k := range s.Keys {
-		p[i] = &PublicKey{PublicKey: k.PublicKey, Created: k.Created}
+		p[i] = &PublicKey{Key: k.PublicKey, Created: k.Created}
 	}
 	return p, nil
 }

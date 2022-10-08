@@ -23,8 +23,8 @@ import (
 
 // PublicKey associated with the signer at a given point in time.
 type PublicKey struct {
-	PublicKey string    `json:"publicKey,omitempty"` // The public key in PEM format
-	Created   time.Time `json:"created"`             // The date and time that the keys were created
+	Key     string    `json:"key,omitempty"` // The public key in PEM format
+	Created time.Time `json:"created"`       // The date and time that the keys were created
 }
 
 // Keys associated with a signer at a given point in time.
