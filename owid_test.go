@@ -28,6 +28,21 @@ import (
 // using standard Go methods.
 func TestOWIDSerialize(t *testing.T) {
 	s, o := testOWIDCreateAndVerify(t)
+	t.Run("log", func(t *testing.T) {
+		n := o
+		n.Log = true
+		err := s.Sign(n)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := s.Verify(n)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !b {
+			t.Fatal("should pass")
+		}
+	})
 	t.Run("json", func(t *testing.T) {
 		b, err := json.Marshal(o)
 		if err != nil {

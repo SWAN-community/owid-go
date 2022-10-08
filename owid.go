@@ -22,8 +22,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/SWAN-community/common-go"
@@ -43,6 +45,7 @@ type OWID struct {
 	TimeStamp time.Time `json:"timestamp"` // The date and time to the nearest minute in UTC that the OWID was signed.
 	Signature []byte    `json:"signature"` // Signature for this OWID and the data returned from the target.
 	Target    Marshaler `json:"-"`         // Instance of the object that contains the data related to the OWID.
+	Log       bool      `json:"-"`         // True to log the signature and data as byte arrays during signing operations.
 }
 
 // AgeInMinutes returns the number of complete minutes that have elapsed since
@@ -114,14 +117,24 @@ func (o *OWID) Validate() error {
 // considered valid if the timestamp and domain also match.
 // crypto instance to use for signing
 func (o *OWID) Sign(crypto *Crypto) error {
+	var l strings.Builder
 	o.TimeStamp = common.GetDateFromMinutes(common.GetDateInMinutes(time.Now()))
 	d, err := o.getTargetAndOwidData()
 	if err != nil {
 		return err
 	}
+	if o.Log {
+		l.WriteString("\r\nsign data:\r\n")
+		logOwidBytes(&l, d)
+	}
 	o.Signature, err = crypto.SignByteArray(d)
 	if err != nil {
 		return err
+	}
+	if o.Log {
+		l.WriteString("signature:\r\n")
+		logOwidBytes(&l, o.Signature)
+		log.Println(l.String())
 	}
 	return nil
 }
@@ -133,6 +146,14 @@ func (o *OWID) VerifyWithCrypto(crypto *Crypto) (bool, error) {
 	d, err := o.getTargetAndOwidData()
 	if err != nil {
 		return false, err
+	}
+	if o.Log {
+		var l strings.Builder
+		l.WriteString("\r\nverify data:\r\n")
+		logOwidBytes(&l, d)
+		l.WriteString("signature:\r\n")
+		logOwidBytes(&l, o.Signature)
+		log.Println(l.String())
 	}
 	return crypto.VerifyByteArray(d, o.Signature)
 }
@@ -410,4 +431,10 @@ func (o *OWID) getTargetAndOwidData() ([]byte, error) {
 		return nil, err
 	}
 	return b.Bytes(), nil
+}
+
+func logOwidBytes(l *strings.Builder, d []byte) {
+	for i, e := range d {
+		l.WriteString(fmt.Sprintf("\t%d: %d\r\n", i, e))
+	}
 }
