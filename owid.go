@@ -350,6 +350,14 @@ func FromBuffer(b *bytes.Buffer, target Marshaler) (*OWID, error) {
 	return o, o.FromBuffer(b)
 }
 
+// GetTimeStampWithTolerance returns a created time stamp that can be used to
+// compare with keys that were created with a different clock or timing
+// fidelity. Used when deciding if it is worth evaluating a public key at
+// verification time.
+func (o *OWID) getTimeStampWithTolerance() time.Time {
+	return o.TimeStamp.Add(-time.Hour)
+}
+
 func fromBufferV1(b *bytes.Buffer, o *OWID) error {
 	var err error
 	o.Domain, err = common.ReadString(b)

@@ -138,9 +138,10 @@ func (s *SignerPublic) Verify(owid *OWID) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	b := owid.getTimeStampWithTolerance()
 	for i := len(s.PublicKeys) - 1; i >= 0; i-- {
 		k := s.PublicKeys[i]
-		if !k.Created.After(owid.TimeStamp) {
+		if !k.Created.After(b) {
 			r, err := owid.VerifyWithPublicKey(k.Key)
 			if err != nil {
 				return false, err
@@ -164,9 +165,10 @@ func (s *Signer) Verify(owid *OWID) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	b := owid.getTimeStampWithTolerance()
 	for i := len(s.Keys) - 1; i >= 0; i-- {
 		k := s.Keys[i]
-		if !k.Created.After(owid.TimeStamp) {
+		if !k.Created.After(b) {
 			p, err := k.NewCryptoVerifyOnly()
 			if err != nil {
 				return false, err
