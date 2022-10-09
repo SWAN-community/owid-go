@@ -355,7 +355,7 @@ func FromBuffer(b *bytes.Buffer, target Marshaler) (*OWID, error) {
 // fidelity. Used when deciding if it is worth evaluating a public key at
 // verification time.
 func (o *OWID) getTimeStampWithTolerance() time.Time {
-	return o.TimeStamp.Add(-time.Hour)
+	return o.TimeStamp.Add(time.Hour)
 }
 
 func fromBufferV1(b *bytes.Buffer, o *OWID) error {
