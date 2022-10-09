@@ -23,7 +23,7 @@ import (
 	"github.com/SWAN-community/common-go"
 )
 
-// HandlerSigner Returns the public information associated with the creator.
+// HandlerSigner returns the public information associated with the signer.
 func HandlerSigner(s *Services) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		g := s.GetSignerHttp(w, r)
@@ -35,12 +35,7 @@ func HandlerSigner(s *Services) http.HandlerFunc {
 			common.ReturnServerError(w, err)
 			return
 		}
-		ps, err := publicSigner(g)
-		if err != nil {
-			common.ReturnServerError(w, err)
-			return
-		}
-		u, err := json.Marshal(ps)
+		u, err := json.Marshal(g.PublicSigner())
 		if err != nil {
 			common.ReturnServerError(w, err)
 			return
@@ -48,17 +43,4 @@ func HandlerSigner(s *Services) http.HandlerFunc {
 		w.Header().Set("Cache-Control", "max-age=60")
 		common.SendJS(w, u)
 	}
-}
-
-func publicSigner(s *Signer) (*SignerPublic, error) {
-	var err error
-	ps := &SignerPublic{
-		Domain:   s.Domain,
-		Name:     s.Name,
-		TermsURL: s.TermsURL}
-	ps.PublicKeys, err = s.PublicKeys()
-	if err != nil {
-		return nil, err
-	}
-	return ps, nil
 }

@@ -17,14 +17,13 @@
 package owid
 
 import (
-	"sort"
 	"time"
 )
 
 // PublicKey associated with the signer at a given point in time.
 type PublicKey struct {
 	Key     string    `json:"key,omitempty"` // The public key in PEM format
-	Created time.Time `json:"created"`       // The date and time that the keys were created
+	Created time.Time `json:"created"`       // The date and time that the key was created
 }
 
 // Keys associated with a signer at a given point in time.
@@ -110,38 +109,6 @@ func (k *Keys) equal(other *Keys) bool {
 	return k.PrivateKey == other.PrivateKey &&
 		k.PublicKey == other.PublicKey &&
 		k.Created.Equal(other.Created)
-}
-
-// orderKeys creates an array of keys based on the time elapsed between the
-// creation of the key and the time provided. Used to try the keys for
-// verification using an order that is most likely to
-// verification
-func orderKeys(k []*Keys, t time.Time) []*Keys {
-
-	// Build an array of keys that were created before the time provided.
-	// Anything that was created after the time provided couldn't possibly
-	// be relevant.
-	d := make([]keySort, 0, len(k))
-	for i := 0; i < len(k); i++ {
-		v := t.Sub(k[i].Created)
-		if v >= 0 {
-			d = append(d, keySort{
-				duration: k[i].Created.Sub(t),
-				index:    i})
-		}
-	}
-
-	// Sort the array of keys in ascending order of duration from the time
-	// provided.
-	sort.Slice(d, func(a, b int) bool { return d[a].duration > d[b].duration })
-
-	// Copy the pointers to the keys that could verify the OWID into a new array
-	// to be returned.
-	n := make([]*Keys, len(d))
-	for i := 0; i < len(d); i++ {
-		n[i] = k[d[i].index]
-	}
-	return n
 }
 
 // verifyOWID verifies the OWID provided.

@@ -21,7 +21,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -165,10 +164,7 @@ func (o *OWID) Verify(scheme string) (bool, error) {
 	u := url.URL{
 		Scheme: scheme,
 		Host:   o.Domain,
-		Path:   fmt.Sprintf("/owid/api/v%d/public-key", o.Version)}
-	q := u.Query()
-	q.Set("format", "pkcs")
-	u.RawQuery = q.Encode()
+		Path:   fmt.Sprintf("/owid/api/v%d/signer", o.Version)}
 	r, err := client.Get(u.String())
 	if err != nil {
 		return false, err
@@ -180,11 +176,13 @@ func (o *OWID) Verify(scheme string) (bool, error) {
 			o.Domain,
 			r.StatusCode)
 	}
-	v, err := io.ReadAll(r.Body)
+	p := &SignerPublic{}
+	defer r.Body.Close()
+	err = json.NewDecoder(r.Body).Decode(p)
 	if err != nil {
 		return false, err
 	}
-	return o.VerifyWithPublicKey(string(v))
+	return p.Verify(o)
 }
 
 // MarshalJSON the OWID to conform to the OneKey source definition.

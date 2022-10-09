@@ -45,66 +45,6 @@ func TestKeys(t *testing.T) {
 	})
 }
 
-func TestKeysOrder(t *testing.T) {
-	base := common.IoDateBase.Add(time.Hour * 24 * 365)
-	past := base.Add(-time.Minute)
-	future := base.Add(time.Minute)
-	baseKey := testKeysCreate(t, base)
-	pastKey := testKeysCreate(t, past)
-	futureKey := testKeysCreate(t, future)
-	t.Run("single same date", func(t *testing.T) {
-		k := []*Keys{baseKey}
-		o := orderKeys(k, base)
-		if len(o) != 1 {
-			t.Fatal()
-		}
-	})
-	t.Run("single past date", func(t *testing.T) {
-		k := []*Keys{pastKey}
-		o := orderKeys(k, base)
-		if len(o) != 1 {
-			t.Fatal()
-		}
-	})
-	t.Run("single future date", func(t *testing.T) {
-		k := []*Keys{futureKey}
-		o := orderKeys(k, base)
-		if len(o) != 0 {
-			t.Fatal()
-		}
-	})
-	t.Run("three dates", func(t *testing.T) {
-		k := []*Keys{futureKey, pastKey, baseKey}
-		o := orderKeys(k, base)
-		if len(o) != 2 {
-			t.Fatal()
-		}
-		if o[0] != baseKey {
-			t.Fatal("first date should be base")
-		}
-		if o[1] != pastKey {
-			t.Fatal("second date should be past")
-		}
-	})
-	t.Run("duplicate date", func(t *testing.T) {
-		d := testKeysCreate(t, past)
-		k := []*Keys{futureKey, pastKey, baseKey, d}
-		o := orderKeys(k, base)
-		if len(o) != 3 {
-			t.Fatal()
-		}
-		if o[0] != baseKey {
-			t.Fatal("first date should be base")
-		}
-		if o[1].Created != past {
-			t.Fatal("second date should be past")
-		}
-		if o[2].Created != past {
-			t.Fatal("third date should be past")
-		}
-	})
-}
-
 // testKeysCreate creates a set of new keys for testing.
 func testKeysCreate(t *testing.T, d time.Time) *Keys {
 	c, err := NewCrypto()

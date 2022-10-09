@@ -23,7 +23,6 @@ import (
 	"net/url"
 	"sort"
 	"strings"
-	"time"
 )
 
 // Signer of Open Web Ids.
@@ -87,12 +86,21 @@ func (s *Signer) SortKeys() {
 }
 
 // PublicKeys creates an array of the public key information.
-func (s *Signer) PublicKeys() ([]*PublicKey, error) {
+func (s *Signer) PublicKeys() []*PublicKey {
 	p := make([]*PublicKey, len(s.Keys))
 	for i, k := range s.Keys {
 		p[i] = &PublicKey{Key: k.PublicKey, Created: k.Created}
 	}
-	return p, nil
+	return p
+}
+
+// PublicSigner creates a new instance of a public signer.
+func (s *Signer) PublicSigner() *SignerPublic {
+	return &SignerPublic{
+		Domain:     s.Domain,
+		Name:       s.Name,
+		TermsURL:   s.TermsURL,
+		PublicKeys: s.PublicKeys()}
 }
 
 // Sign the OWID by updating the signature, timestamp, and domain fields.
@@ -119,33 +127,55 @@ func (s *Signer) CreateOWIDandSign(m Marshaler) (*OWID, error) {
 	return o, nil
 }
 
+// Verify the OWID and any other OWIDs are valid for this public key signer.
+// owid containing the signature to verify with the data
+// Returns true if the signature is valid, otherwise false.
+//
+// The signer has multiple keys and all of them have to be tried against the
+// signature before verification can be complete.
+func (s *SignerPublic) Verify(owid *OWID) (bool, error) {
+	err := verifyDomains(s.Domain, owid)
+	if err != nil {
+		return false, err
+	}
+	for i := len(s.PublicKeys) - 1; i >= 0; i-- {
+		k := s.PublicKeys[i]
+		if !k.Created.After(owid.TimeStamp) {
+			r, err := owid.VerifyWithPublicKey(k.Key)
+			if err != nil {
+				return false, err
+			}
+			if r {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
 // Verify the OWID and any other OWIDs are valid for this signer.
 // owid containing the signature to verify with the data
 // Returns true if the signature is valid, otherwise false.
 //
 // The signer has multiple keys and all of them have to be tried against the
-// signature before verification can be complete. The keys are ordered based on
-// proximity to the OWID date field and then tried in order.
+// signature before verification can be complete.
 func (s *Signer) Verify(owid *OWID) (bool, error) {
-	err := verifyDomains(s, owid)
+	err := verifyDomains(s.Domain, owid)
 	if err != nil {
 		return false, err
 	}
-	if len(s.Keys) == 1 {
-
-		// There is only one key so no need to order anything.
-		return s.Keys[0].verifyOWID(owid)
-	} else {
-
-		// Order the keys that were created before this OWID and then evaluate
-		// them in order of proximity to the OWID date. The most likely key will
-		// be the one that was created just before the OWID.
-		for _, k := range orderKeys(s.Keys, owid.TimeStamp.Add(-time.Hour)) {
-			v, err := k.verifyOWID(owid)
+	for i := len(s.Keys) - 1; i >= 0; i-- {
+		k := s.Keys[i]
+		if !k.Created.After(owid.TimeStamp) {
+			p, err := k.NewCryptoVerifyOnly()
 			if err != nil {
 				return false, err
 			}
-			if v {
+			r, err := owid.VerifyWithCrypto(p)
+			if err != nil {
+				return false, err
+			}
+			if r {
 				return true, nil
 			}
 		}
@@ -165,11 +195,11 @@ func (s *Signer) NewCryptoSignOnly() (*Crypto, error) {
 
 // verifyDomains checks that the signer and OWID domains match. If they don't
 // an error is returned with a message indicating the mismatch.
-func verifyDomains(s *Signer, o *OWID) error {
-	if !strings.EqualFold(s.Domain, o.Domain) {
+func verifyDomains(s string, o *OWID) error {
+	if !strings.EqualFold(s, o.Domain) {
 		return fmt.Errorf(
 			"can't use signer '%s' with OWID '%s'",
-			s.Domain,
+			s,
 			o.Domain)
 	}
 	return nil

@@ -36,3 +36,18 @@ func TestSigner(t *testing.T) {
 		t.Fatal("verification failed")
 	}
 }
+
+func TestPublicSigner(t *testing.T) {
+	s := NewTestDefaultSigner(t)
+	o, err := s.CreateOWIDandSign(testByteArray)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := s.PublicSigner().Verify(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r {
+		t.Fatal("verification failed")
+	}
+}
