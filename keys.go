@@ -154,8 +154,5 @@ func (k *Keys) verifyOWID(o *OWID) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if v {
-		return true, nil
-	}
-	return false, nil
+	return v, nil
 }

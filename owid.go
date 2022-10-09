@@ -73,19 +73,6 @@ func (o *OWID) GetExpires(day int) time.Time {
 	return o.TimeStamp.Add(time.Duration(day) * 24 * time.Hour)
 }
 
-// NewUnsignedOwid creates a new unsigned instance of the OWID structure.
-// returns the new OWID
-func NewUnsignedOwid(
-	domain string,
-	date time.Time,
-	target Marshaler) (*OWID, error) {
-	return &OWID{
-		Version:   owidVersion1,
-		Domain:    domain,
-		TimeStamp: date,
-		Target:    target}, nil
-}
-
 // Validate the OWID data structure (not the same as Verify which checks the
 // signature is valid) and returns an error instance if there is a problem.
 func (o *OWID) Validate() error {

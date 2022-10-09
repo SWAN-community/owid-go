@@ -24,11 +24,7 @@ var testByteArray = &ByteArray{Data: []byte(testData)}
 
 func TestSigner(t *testing.T) {
 	s := NewTestDefaultSigner(t)
-	o, err := s.NewOwid(testByteArray)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = s.Sign(o)
+	o, err := s.CreateOWIDandSign(testByteArray)
 	if err != nil {
 		t.Fatal(err)
 	}

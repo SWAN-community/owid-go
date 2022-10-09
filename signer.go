@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net/url"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -78,13 +79,6 @@ func newSigner(
 	return s, nil
 }
 
-// NewOwid returns a new unsigned OWID associated with the signer.
-// target associated with the newly created OWID
-// returns the new OWID ready to be signed
-func (s *Signer) NewOwid(target Marshaler) (*OWID, error) {
-	return NewUnsignedOwid(s.Domain, time.Now(), target)
-}
-
 // SortKeys in descending order of created date.
 func (s *Signer) SortKeys() {
 	sort.Slice(s.Keys, func(a, b int) bool {
@@ -101,25 +95,24 @@ func (s *Signer) PublicKeys() ([]*PublicKey, error) {
 	return p, nil
 }
 
-// Sign the OWID by updating the signature field.
+// Sign the OWID by updating the signature, timestamp, and domain fields.
 // owid to update the signature
 func (s *Signer) Sign(owid *OWID) error {
 	c, err := s.NewCryptoSignOnly()
 	if err != nil {
 		return err
 	}
+	owid.Version = owidVersion1
+	owid.Domain = s.Domain
 	return owid.Sign(c)
 }
 
-// CreateOWIDandSign the OWID with the payload and signs the result.
-// data to be signed
-// Returns a new OWID for the signer.
+// CreateOWIDandSign the OWID with the data from the marshaller provided.
+// m instance that supports Marshaller for OWIDs
+// Returns a new OWID for the signer and the marshaller provided
 func (s *Signer) CreateOWIDandSign(m Marshaler) (*OWID, error) {
-	o, err := s.NewOwid(m)
-	if err != nil {
-		return nil, err
-	}
-	err = s.Sign(o)
+	o := &OWID{Target: m}
+	err := s.Sign(o)
 	if err != nil {
 		return nil, err
 	}
@@ -160,8 +153,8 @@ func (s *Signer) Verify(owid *OWID) (bool, error) {
 	return false, nil
 }
 
-// NewCryptoSignOnly creates a new instance of the Crypto structure
-// for signing OWIDs only.
+// NewCryptoSignOnly creates a new instance of the Crypto structure for signing
+// OWIDs only.
 func (s *Signer) NewCryptoSignOnly() (*Crypto, error) {
 	k, err := s.currentKeys()
 	if err != nil {
@@ -173,7 +166,7 @@ func (s *Signer) NewCryptoSignOnly() (*Crypto, error) {
 // verifyDomains checks that the signer and OWID domains match. If they don't
 // an error is returned with a message indicating the mismatch.
 func verifyDomains(s *Signer, o *OWID) error {
-	if s.Domain != o.Domain {
+	if !strings.EqualFold(s.Domain, o.Domain) {
 		return fmt.Errorf(
 			"can't use signer '%s' with OWID '%s'",
 			s.Domain,
