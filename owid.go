@@ -399,9 +399,10 @@ func (o *OWID) compare(other *OWID) bool {
 }
 
 // getTargetAndOwidData combines the target data and OWID data.
-// The domain and timestamp associated with the OWID also need to be included in
-// the data that is passed to signing or verification. This method assembles the
-// byte array for the sign and verify methods to include both sets of data.
+// The version, domain, and timestamp associated with the OWID also need to be
+// included in the data that is passed to signing or verification. This method
+// assembles the byte array for the sign and verify methods to include both sets
+// of data.
 func (o *OWID) getTargetAndOwidData() ([]byte, error) {
 	var b bytes.Buffer
 	if o.Target == nil {
@@ -412,6 +413,10 @@ func (o *OWID) getTargetAndOwidData() ([]byte, error) {
 		return nil, err
 	}
 	err = common.WriteByteArrayNoLength(&b, a)
+	if err != nil {
+		return nil, err
+	}
+	err = common.WriteByte(&b, o.Version)
 	if err != nil {
 		return nil, err
 	}
