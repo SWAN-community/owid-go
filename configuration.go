@@ -26,7 +26,7 @@ import (
 // Configuration details from appsettings.json for access to the AWS or Azure
 // storage.
 type Configuration struct {
-	config.Common   `mapstructure:",squash"`
+	config.Base     `mapstructure:",squash"`
 	Scheme          string `mapstructure:"scheme"` // The scheme to use for requests
 	BackgroundColor string `mapstructure:"backgroundColor"`
 	MessageColor    string `mapstructure:"messageColor"`
