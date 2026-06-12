@@ -135,17 +135,10 @@ go test ./...
 ```
 
 The tests cover creation, signing, verification, serialization, chaining, the
-node tree and the HTTP handlers. The suite also verifies fixtures signed by
-the Rust and .NET implementations to prove cross-language compatibility. The
-AWS, Azure and GCP storage backends are not covered by tests as they require
+node tree and the HTTP handlers. The suite also verifies externally signed
+fixtures that prove the wire format and signatures are portable. The AWS,
+Azure and GCP storage backends are not covered by tests as they require
 cloud credentials.
-
-## Related repositories
-
-- [owid](https://github.com/SWAN-community/owid) defines the concept and the data format
-- [owid-dotnet](https://github.com/SWAN-community/owid-dotnet) is the C# implementation
-- [owid-js](https://github.com/SWAN-community/owid-js) is the JavaScript implementation
-- [owid-rust](https://github.com/SWAN-community/owid-rust) is the Rust implementation
 
 ## License
 
