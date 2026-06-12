@@ -2,8 +2,151 @@
 
 # Open Web Id (OWID)
 
-Open Web Id (OWID) - Simple cryptographically auditable identifiers and
-processors implemented in Go.
+## Overview
 
-Read the [OWID](https://github.com/SWAN-community/owid) project to learn more about
-the concepts before looking into this reference implementation.
+Open Web Id (OWID) is a small cryptographically signed identifier. Each OWID
+records the domain of the party that created it, the date and time of
+creation to the nearest minute and a byte array payload. The signature is
+created with ECDSA using the P-256 curve over a SHA-256 hash of the other
+fields, so any change to the OWID after signing can be detected. OWIDs can
+also be chained together so that one OWID is bound to others at the moment of
+signing. Read the [OWID](https://github.com/SWAN-community/owid) project to
+learn more about the concepts behind this implementation.
+
+## Scope of this implementation
+
+This repository contains the full Go implementation of OWID. It can create,
+sign and verify OWIDs, serve the HTTP endpoints used to register creators,
+publish public keys and verify OWIDs, and persist creator key pairs using
+AWS, Azure, GCP or local file storage backends.
+
+## Installation
+
+```
+go get github.com/SWAN-community/owid-go
+```
+
+## Usage
+
+Create a key pair, sign an OWID and verify it.
+
+```go
+package main
+
+import (
+	"fmt"
+	"time"
+
+	owid "github.com/SWAN-community/owid-go"
+)
+
+func main() {
+
+	// Create a new key pair for the creator domain.
+	crypto, err := owid.NewCrypto()
+	if err != nil {
+		panic(err)
+	}
+
+	// Create and sign an OWID containing the payload.
+	o, err := owid.NewOwid("example.com", time.Now().UTC(), []byte("example"))
+	if err != nil {
+		panic(err)
+	}
+	err = o.Sign(crypto, nil)
+	if err != nil {
+		panic(err)
+	}
+
+	// Output the OWID as a base 64 string for transmission.
+	s, err := o.AsBase64()
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(s)
+
+	// Decode the OWID and verify it with the public key.
+	n, err := owid.FromBase64(s)
+	if err != nil {
+		panic(err)
+	}
+	valid, err := n.VerifyWithCrypto(crypto, nil)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(valid)
+}
+```
+
+An OWID received from another party can be verified with the PEM public key
+of the creator, or by fetching the public key from the creator's domain.
+
+```go
+valid, err := o.VerifyWithPublicKey(publicKeyPem)
+
+// Fetches the key from https://[o.Domain]/owid/api/v3/public-key.
+valid, err = o.Verify("https")
+```
+
+OWIDs can be chained by passing other OWIDs to the sign operation. The same
+OWIDs must be provided again for verification to succeed.
+
+```go
+root, _ := owid.NewOwid("example.com", time.Now().UTC(), []byte("root"))
+root.Sign(crypto, nil)
+
+child, _ := owid.NewOwid("example.com", time.Now().UTC(), []byte("child"))
+child.Sign(crypto, []*owid.OWID{root})
+
+// True only when the same others are supplied in the same order.
+valid, _ := child.VerifyWithCrypto(crypto, []*owid.OWID{root})
+```
+
+To run an OWID creator service use `AddHandlers` with a configuration, store
+and access implementation.
+
+```go
+config := owid.NewConfig("appsettings.json")
+store := owid.NewStore(config)
+access := owid.NewAccessSimple([]string{"access-key"})
+services := owid.NewServices(config, store, access)
+owid.AddHandlers(services)
+```
+
+## HTTP endpoints
+
+`AddHandlers` registers the following endpoints. The api routes are
+registered for versions v1, v2 and v3.
+
+| Endpoint | Description |
+|----------|-------------|
+| /owid/register | HTML form to register the host domain as an OWID creator |
+| /owid/api/v3/creator | Returns the name, domain and public keys of the creator for the host domain |
+| /owid/api/v3/public-key | Returns the creator's public key in PEM form, with the `format` parameter set to `spki` or `pkcs` |
+| /owid/api/v3/verify | Verifies the OWID in the `owid` parameter and returns JSON in the form `{"valid":true}` |
+
+The same creator, public-key and verify paths are also registered under
+`/owid/api/v1/` and `/owid/api/v2/` for backwards compatibility.
+
+## Testing
+
+```
+go test ./...
+```
+
+The tests cover creation, signing, verification, serialization, chaining, the
+node tree and the HTTP handlers. The suite also verifies fixtures signed by
+the Rust and .NET implementations to prove cross-language compatibility. The
+AWS, Azure and GCP storage backends are not covered by tests as they require
+cloud credentials.
+
+## Related repositories
+
+- [owid](https://github.com/SWAN-community/owid) defines the concept and the data format
+- [owid-dotnet](https://github.com/SWAN-community/owid-dotnet) is the C# implementation
+- [owid-js](https://github.com/SWAN-community/owid-js) is the JavaScript implementation
+- [owid-rust](https://github.com/SWAN-community/owid-rust) is the Rust implementation
+
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE).
