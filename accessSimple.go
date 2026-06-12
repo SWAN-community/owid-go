@@ -16,8 +16,8 @@
 
 package owid
 
-// AccessSimple is a implementation of swift.Access for testing where a list
-// of keys returns true, and all others return false.
+// AccessSimple is an implementation of the Access interface where a fixed
+// list of keys returns true, and all others return false.
 type AccessSimple struct {
 	validKeys map[string]bool // A list of the keys that are valid.
 }
@@ -35,7 +35,7 @@ func NewAccessSimple(validKeys []string) *AccessSimple {
 	return &a
 }
 
-// GetAllowed validates access key can access swift handlers
+// GetAllowed returns true if the access key can access the OWID handlers.
 func (a *AccessSimple) GetAllowed(accessKey string) (bool, error) {
 	return a.validKeys[accessKey], nil
 

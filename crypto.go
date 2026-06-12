@@ -101,13 +101,12 @@ func (c *Crypto) SignByteArray(data []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Write r and s into the two fixed length halves of the signature. The
+	// values are right aligned with leading zero padding so that the half
+	// is always 32 bytes even when the big integer has fewer bytes.
 	signature := make([]byte, signatureLength)
-	for i, b := range r.Bytes() {
-		signature[i] = b
-	}
-	for i, b := range s.Bytes() {
-		signature[i+halfSignatureLength] = b
-	}
+	r.FillBytes(signature[:halfSignatureLength])
+	s.FillBytes(signature[halfSignatureLength:])
 	return signature, nil
 }
 

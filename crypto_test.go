@@ -42,6 +42,36 @@ func TestInvalidPrivatePem(t *testing.T) {
 	}
 }
 
+// TestCryptoSignatureAlignment signs repeatedly to cover the case where the
+// r or s value of the signature has fewer than 32 bytes and needs leading
+// zero padding. Around 1 in 128 signatures has a short r or s value, so
+// 1,000 iterations cover the case with near certainty.
+func TestCryptoSignatureAlignment(t *testing.T) {
+	c, err := newCrypto()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 1000; i++ {
+		a, err := c.SignByteArray([]byte(testPayload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(a) != signatureLength {
+			t.Fatalf(
+				"expected signature length '%d', found '%d'",
+				signatureLength,
+				len(a))
+		}
+		b, err := c.VerifyByteArray([]byte(testPayload), a)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if b != true {
+			t.Fatalf("signature '%d' was invalid", i)
+		}
+	}
+}
+
 func TestCrypto(t *testing.T) {
 	c, err := newCrypto()
 	if err != nil {

@@ -19,6 +19,7 @@ package owid
 import (
 	"bytes"
 	"fmt"
+	"net/url"
 	"testing"
 )
 
@@ -138,6 +139,238 @@ func TestOWIDByteArrayCorruptReplace(t *testing.T) {
 			t.Fatal(fmt.Errorf("corrupt byte array should result in error"))
 		}
 		i++
+	}
+}
+
+// TestOWIDModifiedDomain verifies that changing the domain after signing
+// causes verification to fail.
+func TestOWIDModifiedDomain(t *testing.T) {
+	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := newOWID(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o.Domain = "different.com"
+	v, err := o.VerifyWithPublicKey(c.publicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != false {
+		t.Fatal(fmt.Errorf("modified domain should not pass verification"))
+	}
+}
+
+// TestOWIDChain verifies that an OWID signed with other OWIDs passes
+// verification when the same others are provided, and fails when they are
+// omitted, reordered or different.
+func TestOWIDChain(t *testing.T) {
+	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := c.CreateOWIDandSign([]byte("first"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := c.CreateOWIDandSign([]byte("second"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := c.CreateOWIDandSign([]byte(testPayload), first, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify with the same others in the same order.
+	v, err := c.Verify(o, first, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != true {
+		t.Fatal(fmt.Errorf("chained OWID did not pass verification"))
+	}
+	v, err = o.VerifyWithPublicKey(c.publicKey, first, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != true {
+		t.Fatal(fmt.Errorf("chained OWID did not pass verification with " +
+			"public key"))
+	}
+
+	// Verify fails when the others are omitted.
+	v, err = c.Verify(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != false {
+		t.Fatal(fmt.Errorf("chained OWID should not verify without others"))
+	}
+
+	// Verify fails when the others are in a different order.
+	v, err = c.Verify(o, second, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != false {
+		t.Fatal(fmt.Errorf("chained OWID should not verify with others in " +
+			"a different order"))
+	}
+
+	// Verify fails when a different other is provided.
+	other, err := c.CreateOWIDandSign([]byte("other"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err = c.Verify(o, first, other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != false {
+		t.Fatal(fmt.Errorf("chained OWID should not verify with different " +
+			"others"))
+	}
+}
+
+// TestOWIDQueryFormRoundTrip verifies that an OWID added to a query string
+// with ToQuery can be read back with FromForm.
+func TestOWIDQueryFormRoundTrip(t *testing.T) {
+	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := newOWID(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := url.Values{}
+	err = o.ToQuery("owid", &q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := FromForm(&q, "owid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.compare(n) == false {
+		t.Error("query and form round trip failed")
+	}
+	_, err = FromForm(&q, "missing")
+	if err == nil {
+		t.Fatal(fmt.Errorf("missing form key should result in error"))
+	}
+}
+
+// TestOWIDVersion1 verifies that a buffer constructed in the version 1
+// format can be read with FromBuffer. The version 1 date resolution is one
+// day.
+func TestOWIDVersion1(t *testing.T) {
+	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := newOWID(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := FromBuffer(toVersionBuffer(t, o, owidVersion1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n.Version != owidVersion1 {
+		t.Errorf("expected version '%d', found '%d'", owidVersion1, n.Version)
+	}
+	compareVersionFields(t, o, n)
+	testCompareDate(t, n.Date, o.Date)
+}
+
+// TestOWIDVersion2 verifies that a buffer constructed in the version 2
+// format can be read with FromBuffer. The version 2 date resolution is one
+// minute.
+func TestOWIDVersion2(t *testing.T) {
+	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := newOWID(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := FromBuffer(toVersionBuffer(t, o, owidVersion2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n.Version != owidVersion2 {
+		t.Errorf("expected version '%d', found '%d'", owidVersion2, n.Version)
+	}
+	compareVersionFields(t, o, n)
+	if n.Date.Equal(o.Date) == false {
+		t.Errorf("expected date '%v', found '%v'", o.Date, n.Date)
+	}
+}
+
+// TestOWIDVersionUnsupported verifies that a buffer with an unsupported
+// version byte results in an error from FromBuffer.
+func TestOWIDVersionUnsupported(t *testing.T) {
+	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := newOWID(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := o.AsByteArray()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a[0] = 99
+	_, err = FromByteArray(a)
+	if err == nil {
+		t.Fatal(fmt.Errorf("unsupported version should result in error"))
+	}
+}
+
+// toVersionBuffer writes the fields of the OWID to a buffer using the format
+// for the version provided.
+func toVersionBuffer(t *testing.T, o *OWID, v byte) *bytes.Buffer {
+	var b bytes.Buffer
+	err := writeByte(&b, v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = writeString(&b, o.Domain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = writeDate(&b, o.Date, v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = writeByteArray(&b, o.Payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = writeSignature(&b, o.Signature)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &b
+}
+
+// compareVersionFields checks the fields that are common to all versions.
+func compareVersionFields(t *testing.T, o *OWID, n *OWID) {
+	if n.Domain != o.Domain {
+		t.Errorf("expected domain '%s', found '%s'", o.Domain, n.Domain)
+	}
+	if bytes.Equal(n.Payload, o.Payload) == false {
+		t.Error("payload does not match the input")
+	}
+	if bytes.Equal(n.Signature, o.Signature) == false {
+		t.Error("signature does not match the input")
 	}
 }
 

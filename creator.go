@@ -24,13 +24,13 @@ import (
 
 // Creator of Open Web Ids and immutable data.
 type Creator struct {
-	domain      string // The registered domain name and key fields
-	privateKey  string
-	publicKey   string
-	name        string // The name of the entity associated with the domain
-	contractURL string // URL with the T&Cs associated with the creation of data
-	sign        *Crypto
-	verify      *Crypto
+	domain      string  // The registered domain name and key fields
+	privateKey  string  // Private key in PEM format used to sign OWIDs
+	publicKey   string  // Public key in PEM format used to verify OWIDs
+	name        string  // The name of the entity associated with the domain
+	contractURL string  // URL with the T&Cs associated with the creation of data
+	sign        *Crypto // Cached crypto instance for signing
+	verify      *Crypto // Cached crypto instance for verification
 }
 
 // CreateOWID returns a new unsigned OWID from the creator containing the
