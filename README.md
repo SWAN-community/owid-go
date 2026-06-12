@@ -125,6 +125,9 @@ registered for versions v1, v2 and v3.
 | /owid/api/v3/public-key | Returns the creator's public key in PEM form, with the `format` parameter set to `spki` or `pkcs` |
 | /owid/api/v3/verify | Verifies the OWID in the `owid` parameter and returns JSON in the form `{"valid":true}` |
 
+The same creator, public-key and verify paths are also registered under
+`/owid/api/v1/` and `/owid/api/v2/` for backwards compatibility.
+
 ## Testing
 
 ```
@@ -132,14 +135,17 @@ go test ./...
 ```
 
 The tests cover creation, signing, verification, serialization, chaining, the
-node tree and the HTTP handlers. The AWS, Azure and GCP storage backends are
-not covered by tests as they require cloud credentials.
+node tree and the HTTP handlers. The suite also verifies fixtures signed by
+the Rust and .NET implementations to prove cross-language compatibility. The
+AWS, Azure and GCP storage backends are not covered by tests as they require
+cloud credentials.
 
 ## Related repositories
 
 - [owid](https://github.com/SWAN-community/owid) defines the concept and the data format
 - [owid-dotnet](https://github.com/SWAN-community/owid-dotnet) is the C# implementation
 - [owid-js](https://github.com/SWAN-community/owid-js) is the JavaScript implementation
+- [owid-rust](https://github.com/SWAN-community/owid-rust) is the Rust implementation
 
 ## License
 
