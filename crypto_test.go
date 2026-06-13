@@ -42,6 +42,20 @@ func TestInvalidPrivatePem(t *testing.T) {
 	}
 }
 
+func TestEmptyPublicPem(t *testing.T) {
+	_, err := NewCryptoVerifyOnly("")
+	if err == nil {
+		t.Fatal("empty public PEM should error")
+	}
+}
+
+func TestEmptyPrivatePem(t *testing.T) {
+	_, err := NewCryptoSignOnly("")
+	if err == nil {
+		t.Fatal("empty private PEM should error")
+	}
+}
+
 // TestCryptoSignatureAlignment signs repeatedly to cover the case where the
 // r or s value of the signature has fewer than 32 bytes and needs leading
 // zero padding. Around 1 in 128 signatures has a short r or s value, so

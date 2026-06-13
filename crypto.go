@@ -26,6 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 )
 
 /**
@@ -57,6 +58,9 @@ func NewCrypto() (*Crypto, error) {
 // privatePem PEM format non password protected ECDSA private PEM key.
 func NewCryptoSignOnly(privatePem string) (*Crypto, error) {
 	var c Crypto
+	if strings.TrimSpace(privatePem) == "" {
+		return nil, fmt.Errorf("private key PEM is empty")
+	}
 	block, _ := pem.Decode([]byte(privatePem))
 	if block == nil {
 		return nil, fmt.Errorf("not a valid PEM key")
@@ -74,6 +78,9 @@ func NewCryptoSignOnly(privatePem string) (*Crypto, error) {
 // publicPemKey PEM format ECDSA public PEM key.
 func NewCryptoVerifyOnly(publicPemKey string) (*Crypto, error) {
 	var c Crypto
+	if strings.TrimSpace(publicPemKey) == "" {
+		return nil, fmt.Errorf("public key PEM is empty")
+	}
 	block, _ := pem.Decode([]byte(publicPemKey))
 	if block == nil {
 		return nil, fmt.Errorf("not a valid PEM key")
