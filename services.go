@@ -23,9 +23,10 @@ import (
 
 // Services references all the information needed for every method.
 type Services struct {
-	config Configuration // Configuration used by the server.
-	store  Store         // Instance of storage service for node data
-	access Access        // Instance of access service
+	config     Configuration  // Configuration used by the server.
+	store      Store          // Instance of storage service for node data
+	access     Access         // Instance of access service
+	publicKeys PublicKeyStore // Optional source of signing public keys
 }
 
 // NewServices a set of services to use with Shared Web State. These provide
@@ -48,6 +49,21 @@ func (s *Services) Config() *Configuration { return &s.config }
 // GetCreator returns the store service
 func (s *Services) GetCreator(host string) (*Creator, error) {
 	return s.store.GetCreator(host)
+}
+
+// SetPublicKeyStore overrides the source of signing public keys, for example
+// to serve historical keys for a creator that rotates its signing key.
+func (s *Services) SetPublicKeyStore(p PublicKeyStore) {
+	s.publicKeys = p
+}
+
+// publicKeyStore returns the configured public key store, defaulting to the
+// single key held by the creator store.
+func (s *Services) publicKeyStore() PublicKeyStore {
+	if s.publicKeys != nil {
+		return s.publicKeys
+	}
+	return &creatorPublicKeyStore{store: s.store}
 }
 
 // Returns true if the request is allowed to access the handler, otherwise false.

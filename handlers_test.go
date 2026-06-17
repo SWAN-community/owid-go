@@ -24,8 +24,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 const (
@@ -225,6 +227,67 @@ func TestPublicKeyHandlerInvalidFormat(t *testing.T) {
 			"handler returned wrong status code: got %v want %v",
 			rr.Code,
 			http.StatusInternalServerError)
+	}
+}
+
+// TestPublicKeyHandlerWithDateSelectsKey verifies that a date selects the key
+// that was current then via a configured dated key store.
+func TestPublicKeyHandlerWithDateSelectsKey(t *testing.T) {
+	s, err := getServices()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetPublicKeyStore(NewDatedPublicKeyStore(map[string][]DatedKey{
+		testDomain: {
+			{Created: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), PublicKey: "KEY-OLD"},
+			{Created: time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC), PublicKey: "KEY-NEW"},
+		},
+	}))
+	minutes := uint32(
+		time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC).Sub(ioDateBase).Minutes())
+	q := url.Values{}
+	q.Set("format", "pkcs")
+	q.Set("date", strconv.FormatUint(uint64(minutes), 10))
+	rr := send(t, HandlerPublicKey(s), testDomain, "/owid/api/v3/public-key", q)
+	if v := decompressAsString(t, rr); v != "KEY-OLD" {
+		t.Errorf("got %q, want KEY-OLD", v)
+	}
+}
+
+// TestPublicKeyHandlerDateBeforeOldestReturns404 verifies that a date before
+// any known key returns 404.
+func TestPublicKeyHandlerDateBeforeOldestReturns404(t *testing.T) {
+	s, err := getServices()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetPublicKeyStore(NewDatedPublicKeyStore(map[string][]DatedKey{
+		testDomain: {
+			{Created: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), PublicKey: "KEY"},
+		},
+	}))
+	q := url.Values{}
+	q.Set("format", "pkcs")
+	q.Set("date", "1440") // 2020-01-02, before the only key
+	rr := sendRaw(t, HandlerPublicKey(s), testDomain, "/owid/api/v3/public-key", q)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("got %v, want %v", rr.Code, http.StatusNotFound)
+	}
+}
+
+// TestPublicKeyHandlerMalformedDateReturns400 verifies that a non-numeric date
+// returns 400.
+func TestPublicKeyHandlerMalformedDateReturns400(t *testing.T) {
+	s, err := getServices()
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := url.Values{}
+	q.Set("format", "pkcs")
+	q.Set("date", "notanumber")
+	rr := sendRaw(t, HandlerPublicKey(s), testDomain, "/owid/api/v3/public-key", q)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("got %v, want %v", rr.Code, http.StatusBadRequest)
 	}
 }
 
