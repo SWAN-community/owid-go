@@ -20,6 +20,7 @@ import (
 	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -445,4 +446,140 @@ func getServices() (*Services, error) {
 	ts := newTestStore()
 	ts.addCreator(testDomain, testOrgName, registerContractURL)
 	return NewServices(c, ts, a), nil
+}
+
+// TestPublicKeyHandlerAuthorizerDenies verifies that a configured authorizer
+// can reject a public key request with a 401.
+func TestPublicKeyHandlerAuthorizerDenies(t *testing.T) {
+	s, err := getServices()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetAuthorizer(func(r *http.Request) error {
+		return fmt.Errorf("a subscription credential is required")
+	})
+	q := url.Values{}
+	q.Set("format", "spki")
+	rr := sendRaw(
+		t,
+		HandlerPublicKey(s),
+		testDomain,
+		"/owid/api/v3/public-key",
+		q)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf(
+			"handler returned wrong status code: got %v want %v",
+			rr.Code,
+			http.StatusUnauthorized)
+	}
+	if strings.Contains(
+		rr.Body.String(),
+		"a subscription credential is required") == false {
+		t.Error("response body should contain the authorizer error text")
+	}
+}
+
+// TestCreatorHandlerAuthorizerDenies verifies that a configured authorizer
+// can reject a creator request with a 401.
+func TestCreatorHandlerAuthorizerDenies(t *testing.T) {
+	s, err := getServices()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetAuthorizer(func(r *http.Request) error {
+		return fmt.Errorf("a subscription credential is required")
+	})
+	rr := sendRaw(
+		t,
+		HandlerCreator(s),
+		testDomain,
+		"/owid/api/v3/creator",
+		url.Values{})
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf(
+			"handler returned wrong status code: got %v want %v",
+			rr.Code,
+			http.StatusUnauthorized)
+	}
+	if strings.Contains(
+		rr.Body.String(),
+		"a subscription credential is required") == false {
+		t.Error("response body should contain the authorizer error text")
+	}
+}
+
+// TestPublicKeyHandlerAuthorizerAllows verifies that an authorizer returning
+// nil lets the request through.
+func TestPublicKeyHandlerAuthorizerAllows(t *testing.T) {
+	s, err := getServices()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetAuthorizer(func(r *http.Request) error {
+		return nil
+	})
+	q := url.Values{}
+	q.Set("format", "spki")
+	rr := send(
+		t,
+		HandlerPublicKey(s),
+		testDomain,
+		"/owid/api/v3/public-key",
+		q)
+	v := decompressAsString(t, rr)
+	if strings.HasPrefix(v, "-----BEGIN PUBLIC KEY-----") == false {
+		t.Error("handler did not return a PEM public key")
+	}
+}
+
+// TestCreatorHandlerAuthorizerAllows verifies that an authorizer returning
+// nil lets the creator request through.
+func TestCreatorHandlerAuthorizerAllows(t *testing.T) {
+	s, err := getServices()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetAuthorizer(func(r *http.Request) error {
+		return nil
+	})
+	rr := send(
+		t,
+		HandlerCreator(s),
+		testDomain,
+		"/owid/api/v3/creator",
+		url.Values{})
+	d := decompressAsMap(t, rr)
+	if d["domain"] != testDomain {
+		t.Errorf(
+			"expected domain '%s', returned '%s'",
+			testDomain,
+			d["domain"])
+	}
+}
+
+// TestVerifyHandlerIgnoresAuthorizer verifies that the verify end point stays
+// open when a denying authorizer is configured.
+func TestVerifyHandlerIgnoresAuthorizer(t *testing.T) {
+	s, err := getServices()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := s.store.GetCreator(testDomain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := c.CreateOWIDandSign([]byte(testPayload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := o.AsBase64()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetAuthorizer(func(r *http.Request) error {
+		return fmt.Errorf("a subscription credential is required")
+	})
+	if verifyResponse(t, s, a) != true {
+		t.Error("verify should not require a credential")
+	}
 }

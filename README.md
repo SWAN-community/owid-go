@@ -137,6 +137,27 @@ A creator that rotates its key can serve historical keys by supplying a
 `NewDatedPublicKeyStore` applies the selection rule (the newest key created on
 or before the requested date) over a set of dated keys per domain.
 
+### Requiring authentication (optional)
+
+The OWID specification leaves authentication to the implementor: a creator
+MAY require a credential on the public-key and creator endpoints, for
+example to tie key access to a subscription. Supply an authorizer via
+`Services.SetAuthorizer`; without one the endpoints stay open. The verify
+and register endpoints are not affected.
+
+```go
+services.SetAuthorizer(func(r *http.Request) error {
+	if r.Header.Get("X-Api-Key") == "" {
+		return fmt.Errorf("an API key is required to call this endpoint")
+	}
+	return nil
+})
+```
+
+When the authorizer returns an error the endpoint responds with status 401
+and the error text as the body. The 51Degrees cloud, for example, requires
+a resource key or license key on these endpoints and meters each call.
+
 ## Testing
 
 ```

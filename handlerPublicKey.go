@@ -33,6 +33,9 @@ func HandlerPublicKey(s *Services) http.HandlerFunc {
 			returnAPIError(s, w, err, http.StatusInternalServerError)
 			return
 		}
+		if !s.authorize(w, r) {
+			return
+		}
 		date, err := parsePublicKeyDate(r)
 		if err != nil {
 			returnAPIError(s, w, err, http.StatusBadRequest)

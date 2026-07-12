@@ -35,6 +35,14 @@ type PublicCreator struct {
 // HandlerCreator Returns the public information associated with the creator.
 func HandlerCreator(s *Services) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		err := r.ParseForm()
+		if err != nil {
+			returnAPIError(s, w, err, http.StatusInternalServerError)
+			return
+		}
+		if !s.authorize(w, r) {
+			return
+		}
 		c, err := s.store.GetCreator(r.Host)
 		if err != nil {
 			returnAPIError(s, w, err, http.StatusInternalServerError)
