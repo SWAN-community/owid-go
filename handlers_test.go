@@ -583,3 +583,70 @@ func TestVerifyHandlerIgnoresAuthorizer(t *testing.T) {
 		t.Error("verify should not require a credential")
 	}
 }
+
+// TestVerifyClientSendsDate verifies that the client Verify method forwards
+// the OWID's own date to the public-key endpoint, so a creator that rotates
+// keys can return the key that was current when the OWID was signed.
+func TestVerifyClientSendsDate(t *testing.T) {
+	s, err := getServices()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := s.store.GetCreator(testDomain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := c.CreateOWIDandSign([]byte(testPayload))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var gotDate string
+	handler := HandlerPublicKey(s)
+	srv := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			gotDate = r.URL.Query().Get("date")
+			// The default key store is keyed by host, so present the request
+			// as if it arrived at the creator domain.
+			r.Host = testDomain
+			handler(w, r)
+		}))
+	defer srv.Close()
+
+	// Route the package HTTP client to the test server while leaving the
+	// OWID's real domain intact, since the signature covers the domain.
+	target, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := client
+	defer func() { client = orig }()
+	client = &http.Client{Transport: &redirectTransport{target: target}}
+
+	valid, err := o.Verify("https")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !valid {
+		t.Error("client verify against the dated endpoint should succeed")
+	}
+	want := strconv.FormatUint(
+		uint64(o.Date.Sub(ioDateBase).Minutes()), 10)
+	if gotDate != want {
+		t.Errorf("client sent date %q, want %q", gotDate, want)
+	}
+}
+
+// redirectTransport sends every request to a fixed target host, used to point
+// the client at a test server without altering the request URL's original
+// host that the OWID signature depends on.
+type redirectTransport struct {
+	target *url.URL
+}
+
+func (rt *redirectTransport) RoundTrip(
+	r *http.Request) (*http.Response, error) {
+	r.URL.Scheme = rt.target.Scheme
+	r.URL.Host = rt.target.Host
+	return http.DefaultTransport.RoundTrip(r)
+}

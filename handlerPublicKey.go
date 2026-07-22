@@ -47,11 +47,11 @@ func HandlerPublicKey(s *Services) http.HandlerFunc {
 			return
 		}
 		if p == "" {
-			returnAPIError(
-				s,
-				w,
-				fmt.Errorf("no signing key was active at the requested date"),
-				http.StatusNotFound)
+			msg := "no signing key is available"
+			if date != nil {
+				msg = "no signing key was active at the requested date"
+			}
+			returnAPIError(s, w, fmt.Errorf(msg), http.StatusNotFound)
 			return
 		}
 		switch r.Form.Get("format") {
