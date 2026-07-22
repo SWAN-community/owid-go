@@ -18,6 +18,7 @@ package owid
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 )
 
@@ -33,6 +34,8 @@ type PublicCreator struct {
 }
 
 // HandlerCreator Returns the public information associated with the creator.
+// An optional date parameter, minutes since 2020-01-01 UTC, selects the key
+// that was current at that date, matching the public-key end point.
 func HandlerCreator(s *Services) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		err := r.ParseForm()
@@ -48,7 +51,25 @@ func HandlerCreator(s *Services) http.HandlerFunc {
 			returnAPIError(s, w, err, http.StatusInternalServerError)
 			return
 		}
-		pc, err := publicCreator(c)
+		date, err := parsePublicKeyDate(r)
+		if err != nil {
+			returnAPIError(s, w, err, http.StatusBadRequest)
+			return
+		}
+		key, err := s.publicKeyStore().GetPublicKey(r.Host, date)
+		if err != nil {
+			returnAPIError(s, w, err, http.StatusInternalServerError)
+			return
+		}
+		if key == "" {
+			msg := "no signing key is available"
+			if date != nil {
+				msg = "no signing key was active at the requested date"
+			}
+			returnAPIError(s, w, fmt.Errorf(msg), http.StatusNotFound)
+			return
+		}
+		pc, err := publicCreator(c, key)
 		if err != nil {
 			returnAPIError(s, w, err, http.StatusInternalServerError)
 			return
@@ -63,13 +84,19 @@ func HandlerCreator(s *Services) http.HandlerFunc {
 	}
 }
 
-func publicCreator(c *Creator) (*PublicCreator, error) {
-	var err error
-	var p PublicCreator
-	p.PublicKeySPKI, err = c.SubjectPublicKeyInfo()
+// publicCreator builds the creator response, reporting the selected key in
+// SPKI form. key is the PEM as held by the public key store.
+func publicCreator(c *Creator, key string) (*PublicCreator, error) {
+	cry, err := NewCryptoVerifyOnly(key)
 	if err != nil {
 		return nil, err
 	}
+	spki, err := cry.getSubjectPublicKeyInfo()
+	if err != nil {
+		return nil, err
+	}
+	var p PublicCreator
+	p.PublicKeySPKI = spki
 	p.Domain = c.domain
 	p.Name = c.name
 	p.ContractURL = c.contractURL

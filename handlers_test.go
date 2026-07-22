@@ -650,3 +650,71 @@ func (rt *redirectTransport) RoundTrip(
 	r.URL.Host = rt.target.Host
 	return http.DefaultTransport.RoundTrip(r)
 }
+
+// TestCreatorHandlerWithDateSelectsKey verifies that a date selects the key
+// that was current then on the creator end point, matching public-key.
+func TestCreatorHandlerWithDateSelectsKey(t *testing.T) {
+	s, err := getServices()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldCrypto, err := NewCrypto()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldPem, err := oldCrypto.publicKeyToPemString()
+	if err != nil {
+		t.Fatal(err)
+	}
+	newCrypto, err := NewCrypto()
+	if err != nil {
+		t.Fatal(err)
+	}
+	newPem, err := newCrypto.publicKeyToPemString()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetPublicKeyStore(NewDatedPublicKeyStore(map[string][]DatedKey{
+		testDomain: {
+			{Created: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), PublicKey: oldPem},
+			{Created: time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC), PublicKey: newPem},
+		},
+	}))
+	minutes := uint32(
+		time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC).Sub(ioDateBase).Minutes())
+	q := url.Values{}
+	q.Set("date", strconv.FormatUint(uint64(minutes), 10))
+	rr := send(t, HandlerCreator(s), testDomain, "/owid/api/v3/creator", q)
+	d := decompressAsMap(t, rr)
+	if d["publicKeySPKI"] != oldPem {
+		t.Errorf("got %q, want the older key", d["publicKeySPKI"])
+	}
+}
+
+// TestCreatorHandlerDateBeforeOldestReturns404 verifies that a date before any
+// known key returns 404 on the creator end point.
+func TestCreatorHandlerDateBeforeOldestReturns404(t *testing.T) {
+	s, err := getServices()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cry, err := NewCrypto()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pem, err := cry.publicKeyToPemString()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetPublicKeyStore(NewDatedPublicKeyStore(map[string][]DatedKey{
+		testDomain: {
+			{Created: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), PublicKey: pem},
+		},
+	}))
+	q := url.Values{}
+	q.Set("date", "1440") // 2020-01-02, before the only key
+	rr := sendRaw(t, HandlerCreator(s), testDomain, "/owid/api/v3/creator", q)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("got %v, want %v", rr.Code, http.StatusNotFound)
+	}
+}
