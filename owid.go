@@ -23,6 +23,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -125,6 +126,14 @@ func (o *OWID) Verify(scheme string) (bool, error) {
 		Path:   fmt.Sprintf("/owid/api/v%d/public-key", o.Version)}
 	q := u.Query()
 	q.Set("format", "pkcs")
+	// Send the OWID's own date so the creator can return the signing key that
+	// was current when this OWID was created, letting OWIDs signed before a
+	// key rotation still verify. Creators that do not support dated lookup
+	// ignore the parameter and return the current key.
+	if !o.Date.Before(ioDateBase) {
+		minutes := uint32(o.Date.Sub(ioDateBase).Minutes())
+		q.Set("date", strconv.FormatUint(uint64(minutes), 10))
+	}
 	u.RawQuery = q.Encode()
 	r, err := client.Get(u.String())
 	if err != nil {

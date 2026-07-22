@@ -19,32 +19,50 @@ package owid
 import (
 	"fmt"
 	"net/http"
+	"strconv"
+	"time"
 )
 
-// HandlerPublicKey returns the public key associated with the creator.
+// HandlerPublicKey returns the public key associated with the creator. An
+// optional date parameter, minutes since 2020-01-01 UTC, selects the key that
+// was current at that date.
 func HandlerPublicKey(s *Services) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		c, err := s.store.GetCreator(r.Host)
+		err := r.ParseForm()
 		if err != nil {
 			returnAPIError(s, w, err, http.StatusInternalServerError)
 			return
 		}
-		if c == nil {
-			returnAPIError(s, w, err, http.StatusInternalServerError)
+		if !s.authorize(w, r) {
 			return
 		}
-		err = r.ParseForm()
+		date, err := parsePublicKeyDate(r)
+		if err != nil {
+			returnAPIError(s, w, err, http.StatusBadRequest)
+			return
+		}
+		p, err := s.publicKeyStore().GetPublicKey(r.Host, date)
 		if err != nil {
 			returnAPIError(s, w, err, http.StatusInternalServerError)
 			return
 		}
-		var p string
+		if p == "" {
+			msg := "no signing key is available"
+			if date != nil {
+				msg = "no signing key was active at the requested date"
+			}
+			returnAPIError(s, w, fmt.Errorf(msg), http.StatusNotFound)
+			return
+		}
 		switch r.Form.Get("format") {
 		case "pkcs":
-			p = c.publicKey
+			// p already holds the PEM as stored.
 		case "spki":
-			p, err = c.SubjectPublicKeyInfo()
-			break
+			var cry *Crypto
+			cry, err = NewCryptoVerifyOnly(p)
+			if err == nil {
+				p, err = cry.getSubjectPublicKeyInfo()
+			}
 		default:
 			err = fmt.Errorf(
 				"format parameter 'spki' or 'pkcs' must be provided")
@@ -56,4 +74,22 @@ func HandlerPublicKey(s *Services) http.HandlerFunc {
 		w.Header().Set("Cache-Control", "max-age=60")
 		sendResponse(s, w, "text/plain; charset=utf-8", []byte(p))
 	}
+}
+
+// parsePublicKeyDate reads the optional date parameter, the number of minutes
+// since 2020-01-01 UTC, and returns the corresponding time. It returns nil
+// when the parameter is absent.
+func parsePublicKeyDate(r *http.Request) (*time.Time, error) {
+	v := r.Form.Get("date")
+	if v == "" {
+		return nil, nil
+	}
+	m, err := strconv.ParseUint(v, 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"date must be the number of minutes since 2020-01-01 UTC " +
+				"as an unsigned 32-bit integer")
+	}
+	t := ioDateBase.Add(time.Duration(m) * time.Minute)
+	return &t, nil
 }

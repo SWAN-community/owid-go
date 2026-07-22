@@ -20,12 +20,15 @@ import (
 	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 const (
@@ -228,6 +231,67 @@ func TestPublicKeyHandlerInvalidFormat(t *testing.T) {
 	}
 }
 
+// TestPublicKeyHandlerWithDateSelectsKey verifies that a date selects the key
+// that was current then via a configured dated key store.
+func TestPublicKeyHandlerWithDateSelectsKey(t *testing.T) {
+	s, err := getServices()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetPublicKeyStore(NewDatedPublicKeyStore(map[string][]DatedKey{
+		testDomain: {
+			{Created: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), PublicKey: "KEY-OLD"},
+			{Created: time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC), PublicKey: "KEY-NEW"},
+		},
+	}))
+	minutes := uint32(
+		time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC).Sub(ioDateBase).Minutes())
+	q := url.Values{}
+	q.Set("format", "pkcs")
+	q.Set("date", strconv.FormatUint(uint64(minutes), 10))
+	rr := send(t, HandlerPublicKey(s), testDomain, "/owid/api/v3/public-key", q)
+	if v := decompressAsString(t, rr); v != "KEY-OLD" {
+		t.Errorf("got %q, want KEY-OLD", v)
+	}
+}
+
+// TestPublicKeyHandlerDateBeforeOldestReturns404 verifies that a date before
+// any known key returns 404.
+func TestPublicKeyHandlerDateBeforeOldestReturns404(t *testing.T) {
+	s, err := getServices()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetPublicKeyStore(NewDatedPublicKeyStore(map[string][]DatedKey{
+		testDomain: {
+			{Created: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), PublicKey: "KEY"},
+		},
+	}))
+	q := url.Values{}
+	q.Set("format", "pkcs")
+	q.Set("date", "1440") // 2020-01-02, before the only key
+	rr := sendRaw(t, HandlerPublicKey(s), testDomain, "/owid/api/v3/public-key", q)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("got %v, want %v", rr.Code, http.StatusNotFound)
+	}
+}
+
+// TestPublicKeyHandlerMalformedDateReturns400 verifies that a non-numeric date
+// returns 400.
+func TestPublicKeyHandlerMalformedDateReturns400(t *testing.T) {
+	s, err := getServices()
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := url.Values{}
+	q.Set("format", "pkcs")
+	q.Set("date", "notanumber")
+	rr := sendRaw(t, HandlerPublicKey(s), testDomain, "/owid/api/v3/public-key", q)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("got %v, want %v", rr.Code, http.StatusBadRequest)
+	}
+}
+
 // TestVerifyHandlerValid verifies that the verify endpoint returns valid
 // true for an OWID signed by the creator for the host domain.
 func TestVerifyHandlerValid(t *testing.T) {
@@ -382,4 +446,275 @@ func getServices() (*Services, error) {
 	ts := newTestStore()
 	ts.addCreator(testDomain, testOrgName, registerContractURL)
 	return NewServices(c, ts, a), nil
+}
+
+// TestPublicKeyHandlerAuthorizerDenies verifies that a configured authorizer
+// can reject a public key request with a 401.
+func TestPublicKeyHandlerAuthorizerDenies(t *testing.T) {
+	s, err := getServices()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetAuthorizer(func(r *http.Request) error {
+		return fmt.Errorf("a subscription credential is required")
+	})
+	q := url.Values{}
+	q.Set("format", "spki")
+	rr := sendRaw(
+		t,
+		HandlerPublicKey(s),
+		testDomain,
+		"/owid/api/v3/public-key",
+		q)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf(
+			"handler returned wrong status code: got %v want %v",
+			rr.Code,
+			http.StatusUnauthorized)
+	}
+	if strings.Contains(
+		rr.Body.String(),
+		"a subscription credential is required") == false {
+		t.Error("response body should contain the authorizer error text")
+	}
+}
+
+// TestCreatorHandlerAuthorizerDenies verifies that a configured authorizer
+// can reject a creator request with a 401.
+func TestCreatorHandlerAuthorizerDenies(t *testing.T) {
+	s, err := getServices()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetAuthorizer(func(r *http.Request) error {
+		return fmt.Errorf("a subscription credential is required")
+	})
+	rr := sendRaw(
+		t,
+		HandlerCreator(s),
+		testDomain,
+		"/owid/api/v3/creator",
+		url.Values{})
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf(
+			"handler returned wrong status code: got %v want %v",
+			rr.Code,
+			http.StatusUnauthorized)
+	}
+	if strings.Contains(
+		rr.Body.String(),
+		"a subscription credential is required") == false {
+		t.Error("response body should contain the authorizer error text")
+	}
+}
+
+// TestPublicKeyHandlerAuthorizerAllows verifies that an authorizer returning
+// nil lets the request through.
+func TestPublicKeyHandlerAuthorizerAllows(t *testing.T) {
+	s, err := getServices()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetAuthorizer(func(r *http.Request) error {
+		return nil
+	})
+	q := url.Values{}
+	q.Set("format", "spki")
+	rr := send(
+		t,
+		HandlerPublicKey(s),
+		testDomain,
+		"/owid/api/v3/public-key",
+		q)
+	v := decompressAsString(t, rr)
+	if strings.HasPrefix(v, "-----BEGIN PUBLIC KEY-----") == false {
+		t.Error("handler did not return a PEM public key")
+	}
+}
+
+// TestCreatorHandlerAuthorizerAllows verifies that an authorizer returning
+// nil lets the creator request through.
+func TestCreatorHandlerAuthorizerAllows(t *testing.T) {
+	s, err := getServices()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetAuthorizer(func(r *http.Request) error {
+		return nil
+	})
+	rr := send(
+		t,
+		HandlerCreator(s),
+		testDomain,
+		"/owid/api/v3/creator",
+		url.Values{})
+	d := decompressAsMap(t, rr)
+	if d["domain"] != testDomain {
+		t.Errorf(
+			"expected domain '%s', returned '%s'",
+			testDomain,
+			d["domain"])
+	}
+}
+
+// TestVerifyHandlerIgnoresAuthorizer verifies that the verify end point stays
+// open when a denying authorizer is configured.
+func TestVerifyHandlerIgnoresAuthorizer(t *testing.T) {
+	s, err := getServices()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := s.store.GetCreator(testDomain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := c.CreateOWIDandSign([]byte(testPayload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := o.AsBase64()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetAuthorizer(func(r *http.Request) error {
+		return fmt.Errorf("a subscription credential is required")
+	})
+	if verifyResponse(t, s, a) != true {
+		t.Error("verify should not require a credential")
+	}
+}
+
+// TestVerifyClientSendsDate verifies that the client Verify method forwards
+// the OWID's own date to the public-key endpoint, so a creator that rotates
+// keys can return the key that was current when the OWID was signed.
+func TestVerifyClientSendsDate(t *testing.T) {
+	s, err := getServices()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := s.store.GetCreator(testDomain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := c.CreateOWIDandSign([]byte(testPayload))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var gotDate string
+	handler := HandlerPublicKey(s)
+	srv := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			gotDate = r.URL.Query().Get("date")
+			// The default key store is keyed by host, so present the request
+			// as if it arrived at the creator domain.
+			r.Host = testDomain
+			handler(w, r)
+		}))
+	defer srv.Close()
+
+	// Route the package HTTP client to the test server while leaving the
+	// OWID's real domain intact, since the signature covers the domain.
+	target, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := client
+	defer func() { client = orig }()
+	client = &http.Client{Transport: &redirectTransport{target: target}}
+
+	valid, err := o.Verify("https")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !valid {
+		t.Error("client verify against the dated endpoint should succeed")
+	}
+	want := strconv.FormatUint(
+		uint64(o.Date.Sub(ioDateBase).Minutes()), 10)
+	if gotDate != want {
+		t.Errorf("client sent date %q, want %q", gotDate, want)
+	}
+}
+
+// redirectTransport sends every request to a fixed target host, used to point
+// the client at a test server without altering the request URL's original
+// host that the OWID signature depends on.
+type redirectTransport struct {
+	target *url.URL
+}
+
+func (rt *redirectTransport) RoundTrip(
+	r *http.Request) (*http.Response, error) {
+	r.URL.Scheme = rt.target.Scheme
+	r.URL.Host = rt.target.Host
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+// TestCreatorHandlerWithDateSelectsKey verifies that a date selects the key
+// that was current then on the creator end point, matching public-key.
+func TestCreatorHandlerWithDateSelectsKey(t *testing.T) {
+	s, err := getServices()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldCrypto, err := NewCrypto()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldPem, err := oldCrypto.publicKeyToPemString()
+	if err != nil {
+		t.Fatal(err)
+	}
+	newCrypto, err := NewCrypto()
+	if err != nil {
+		t.Fatal(err)
+	}
+	newPem, err := newCrypto.publicKeyToPemString()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetPublicKeyStore(NewDatedPublicKeyStore(map[string][]DatedKey{
+		testDomain: {
+			{Created: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), PublicKey: oldPem},
+			{Created: time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC), PublicKey: newPem},
+		},
+	}))
+	minutes := uint32(
+		time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC).Sub(ioDateBase).Minutes())
+	q := url.Values{}
+	q.Set("date", strconv.FormatUint(uint64(minutes), 10))
+	rr := send(t, HandlerCreator(s), testDomain, "/owid/api/v3/creator", q)
+	d := decompressAsMap(t, rr)
+	if d["publicKeySPKI"] != oldPem {
+		t.Errorf("got %q, want the older key", d["publicKeySPKI"])
+	}
+}
+
+// TestCreatorHandlerDateBeforeOldestReturns404 verifies that a date before any
+// known key returns 404 on the creator end point.
+func TestCreatorHandlerDateBeforeOldestReturns404(t *testing.T) {
+	s, err := getServices()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cry, err := NewCrypto()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pem, err := cry.publicKeyToPemString()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetPublicKeyStore(NewDatedPublicKeyStore(map[string][]DatedKey{
+		testDomain: {
+			{Created: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), PublicKey: pem},
+		},
+	}))
+	q := url.Values{}
+	q.Set("date", "1440") // 2020-01-02, before the only key
+	rr := sendRaw(t, HandlerCreator(s), testDomain, "/owid/api/v3/creator", q)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("got %v, want %v", rr.Code, http.StatusNotFound)
+	}
 }
