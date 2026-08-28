@@ -96,6 +96,23 @@ func TestPayloadLengthMatchesParses(t *testing.T) {
 	}
 }
 
+// TestPayloadLengthMatchingOneMebibyteParses proves that a payload materially
+// larger than an ordinary identifier remains valid when its declaration and
+// bytes agree. Application policy is separate from format validity.
+func TestPayloadLengthMatchingOneMebibyteParses(t *testing.T) {
+	payload := bytes.Repeat([]byte{0x5A}, 1024*1024)
+	e := payloadLengthEnvelope(
+		uint32(len(payload)), payload, payloadLengthSignature)
+
+	o, err := FromByteArray(e)
+	if err != nil {
+		t.Fatalf("matching payload should parse: %v", err)
+	}
+	if bytes.Equal(o.Payload, payload) == false {
+		t.Fatal("payload does not match the input")
+	}
+}
+
 // TestPayloadLengthLibraryOutputParses proves that an OWID created and
 // signed by the library's own signing path still parses, so the check
 // agrees with what the library itself produces.
@@ -167,13 +184,17 @@ func TestPayloadLengthShortSignatureRefused(t *testing.T) {
 	}
 }
 
-// TestPayloadLengthHugeRefusedWithoutAllocating proves that a declared
-// length far beyond the bytes present is refused without an allocation
-// sized by the declared number. The envelope is a few dozen bytes and
-// declares 64 MiB, then 2 GiB, then the largest value the field can hold,
-// and each refusal allocates under 64 KiB. Allocation is measured as the
-// change in the total bytes allocated reported by the runtime.
-func TestPayloadLengthHugeRefusedWithoutAllocating(t *testing.T) {
+// TestPayloadLengthMismatchedLargeDeclarationRefusedWithoutAllocating proves
+// that a large declaration whose payload bytes are absent is refused without
+// an allocation sized by the declared number. The envelope is a few dozen
+// bytes while declaring 64 MiB, then 2 GiB, then the largest value the field
+// can hold. The numeric values remain valid when the matching payload is
+// present, while each malformed refusal here allocates under 64 KiB.
+// Allocation is measured as the change in total bytes reported by the
+// runtime.
+func TestPayloadLengthMismatchedLargeDeclarationRefusedWithoutAllocating(
+	t *testing.T,
+) {
 	for _, declared := range []uint32{
 		64 * 1024 * 1024,
 		0x7FFFFFFF,

@@ -105,6 +105,11 @@ func readPayload(b *bytes.Buffer) ([]byte, error) {
 }
 
 func writeByteArray(b *bytes.Buffer, v []byte) error {
+	if uint64(len(v)) > uint64(^uint32(0)) {
+		return fmt.Errorf(
+			"payload length '%d' exceeds the unsigned 32 bit limit",
+			len(v))
+	}
 	err := writeUint32(b, uint32(len(v)))
 	if err != nil {
 		return err
