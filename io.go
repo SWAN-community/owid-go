@@ -61,12 +61,47 @@ func writeSignature(b *bytes.Buffer, v []byte) error {
 	return writeByteArrayNoLength(b, v)
 }
 
+// readByteArray reads a length prefixed byte array. The count came from
+// the sender, so a count beyond the bytes present is refused rather than
+// returning a short slice that the caller would take for the whole array.
+// Nothing is allocated from the count, as Next returns a view of the
+// buffer.
 func readByteArray(b *bytes.Buffer) ([]byte, error) {
 	l, err := readUint32(b)
 	if err != nil {
 		return nil, err
 	}
-	return b.Next(int(l)), err
+	if uint64(l) > uint64(b.Len()) {
+		return nil, fmt.Errorf(
+			"byte array length '%d' exceeds the '%d' bytes present",
+			l,
+			b.Len())
+	}
+	return b.Next(int(l)), nil
+}
+
+// readPayload reads the OWID payload. The declared length came from the
+// sender, so it is checked against the bytes present before anything is
+// sized by it. A valid OWID is the payload followed by the 64 byte
+// signature and nothing else, so the declared length must equal the bytes
+// remaining less the signature length. Any other value, short or long, is
+// refused. That also refuses a byte after the signature and a signature
+// shorter than 64 bytes.
+func readPayload(b *bytes.Buffer) ([]byte, error) {
+	l, err := readUint32(b)
+	if err != nil {
+		return nil, err
+	}
+	remaining := b.Len()
+	if uint64(l)+signatureLength != uint64(remaining) {
+		return nil, fmt.Errorf(
+			"OWID payload length '%d' does not match the '%d' bytes "+
+				"present, of which the final '%d' must be the signature",
+			l,
+			remaining,
+			signatureLength)
+	}
+	return b.Next(int(l)), nil
 }
 
 func writeByteArray(b *bytes.Buffer, v []byte) error {

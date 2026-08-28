@@ -222,12 +222,11 @@ func FromBuffer(b *bytes.Buffer) (*OWID, error) {
 	switch o.Version {
 	case owidEmpty:
 		break
-	case owidVersion1:
-		fromBuffer(b, &o)
-	case owidVersion2:
-		fromBuffer(b, &o)
-	case owidVersion3:
-		fromBuffer(b, &o)
+	case owidVersion1, owidVersion2, owidVersion3:
+		err = fromBuffer(b, &o)
+		if err != nil {
+			return nil, err
+		}
 	default:
 		return nil, fmt.Errorf("version '%d' not supported", o.Version)
 	}
@@ -290,7 +289,7 @@ func fromBuffer(b *bytes.Buffer, o *OWID) error {
 	if err != nil {
 		return err
 	}
-	o.Payload, err = readByteArray(b)
+	o.Payload, err = readPayload(b)
 	if err != nil {
 		return err
 	}
