@@ -82,20 +82,19 @@ func readByteArray(b *bytes.Buffer) ([]byte, error) {
 
 // readPayload reads the OWID payload. The declared length came from the
 // sender, so it is checked against the bytes present before anything is
-// sized by it. A valid OWID is the payload followed by the 64 byte
-// signature and nothing else, so the declared length must equal the bytes
-// remaining less the signature length. Any other value, short or long, is
-// refused. That also refuses a byte after the signature and a signature
-// shorter than 64 bytes.
+// sized by it. The declared length must leave at least the 64 byte
+// signature after the payload. FromBuffer consumes exactly one OWID and
+// leaves any framed bytes after it for its caller; FromByteArray separately
+// requires that no bytes remain.
 func readPayload(b *bytes.Buffer) ([]byte, error) {
 	l, err := readUint32(b)
 	if err != nil {
 		return nil, err
 	}
 	remaining := b.Len()
-	if uint64(l)+signatureLength != uint64(remaining) {
+	if uint64(l)+signatureLength > uint64(remaining) {
 		return nil, fmt.Errorf(
-			"OWID payload length '%d' does not match the '%d' bytes "+
+			"OWID payload length '%d' exceeds the '%d' bytes "+
 				"present, of which the final '%d' must be the signature",
 			l,
 			remaining,

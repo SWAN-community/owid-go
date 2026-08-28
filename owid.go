@@ -240,7 +240,17 @@ func FromBuffer(b *bytes.Buffer) (*OWID, error) {
 
 // FromByteArray creates a single OWID from the byte array.
 func FromByteArray(b []byte) (*OWID, error) {
-	return FromBuffer(bytes.NewBuffer(b))
+	buffer := bytes.NewBuffer(b)
+	o, err := FromBuffer(buffer)
+	if err != nil {
+		return nil, err
+	}
+	if buffer.Len() != 0 {
+		return nil, fmt.Errorf(
+			"OWID contains '%d' bytes after the envelope",
+			buffer.Len())
+	}
+	return o, nil
 }
 
 // FromBase64 creates a single OWID from the base 64 string.

@@ -233,3 +233,33 @@ func TestPayloadLengthEmptyPayloadParses(t *testing.T) {
 		t.Error("signature does not match the input")
 	}
 }
+
+// TestFromBufferLeavesFollowingEnvelopeUnread preserves the public reader's
+// stream-composition behaviour while FromByteArray remains strict about EOF.
+func TestFromBufferLeavesFollowingEnvelopeUnread(t *testing.T) {
+	firstBytes := payloadLengthEnvelope(
+		uint32(len(payloadLengthPayload)),
+		payloadLengthPayload,
+		payloadLengthSignature)
+	secondBytes := payloadLengthEnvelope(0, nil, payloadLengthSignature)
+	framed := bytes.NewBuffer(append(firstBytes, secondBytes...))
+
+	first, err := FromBuffer(framed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(first.Payload, payloadLengthPayload) == false {
+		t.Fatal("first payload does not match")
+	}
+	if framed.Len() != len(secondBytes) {
+		t.Fatalf("expected '%d' framed bytes, found '%d'", len(secondBytes), framed.Len())
+	}
+
+	second, err := FromBuffer(framed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Payload) != 0 || framed.Len() != 0 {
+		t.Fatal("second envelope was not consumed exactly")
+	}
+}
