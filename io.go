@@ -30,12 +30,45 @@ var ioDateBase = time.Date(2020, time.Month(1), 1, 0, 0, 0, 0, time.UTC)
 const signatureLength = 64
 const halfSignatureLength = signatureLength / 2
 
+// maximumDomainLength is the greatest number of characters a creator domain
+// may contain. RFC 1035 section 2.3.4, "Size limits", restricts the total
+// length of a domain name to 255 octets or less, counting the label octets
+// and the length octet that precedes each label. An OWID stores the
+// presentation form of the name, being the text "example.com", where the
+// dots take the place of those label length octets and the trailing root
+// octet has no text equivalent, so the same limit is two characters shorter
+// here.
+const maximumDomainLength = 253
+
+// readString reads the creator domain, being the text of the domain
+// followed by a zero terminator. The terminator came from the sender, so
+// the search for it stops at maximumDomainLength rather than running to the
+// end of the buffer, which means the cost of a buffer with no terminator is
+// bounded by the constant and not by the length of the input. A domain
+// longer than the maximum and a domain with no terminator are refused the
+// same way, because neither has a terminator inside the window, and nothing
+// is consumed when either is refused.
 func readString(b *bytes.Buffer) (string, error) {
-	s, err := b.ReadBytes(0)
-	if err == nil {
-		return string(s[0 : len(s)-1]), err
+	w := b.Bytes()
+	if len(w) > maximumDomainLength+1 {
+		w = w[:maximumDomainLength+1]
 	}
-	return "", err
+	i := bytes.IndexByte(w, 0)
+	if i < 0 {
+		if len(w) > maximumDomainLength {
+			return "", fmt.Errorf(
+				"domain has no terminator in the first '%d' bytes, so it "+
+					"is either longer than the '%d' character maximum or "+
+					"has no terminator at all",
+				len(w),
+				maximumDomainLength)
+		}
+		return "", fmt.Errorf(
+			"domain has no terminator in the '%d' bytes present",
+			len(w))
+	}
+	b.Next(i + 1)
+	return string(w[:i]), nil
 }
 
 func readSignature(b *bytes.Buffer) ([]byte, error) {
