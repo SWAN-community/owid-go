@@ -127,12 +127,16 @@ func (a *Azure) fetchCreators() (map[string]*Creator, error) {
 	// Iterate over the records creating nodes and adding them to the creators
 	// map.
 	for _, i := range e.Entities {
-		cs[i.RowKey] = newCreator(
+		c, err := newCreator(
 			i.RowKey,
 			i.Properties[privateKeyFieldName].(string),
 			i.Properties[publicKeyFieldName].(string),
 			i.Properties[nameFieldName].(string),
 			i.Properties[contractURLFieldName].(string))
+		if err != nil {
+			return nil, err
+		}
+		cs[i.RowKey] = c
 	}
 
 	return cs, err

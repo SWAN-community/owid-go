@@ -30,12 +30,60 @@ var ioDateBase = time.Date(2020, time.Month(1), 1, 0, 0, 0, 0, time.UTC)
 const signatureLength = 64
 const halfSignatureLength = signatureLength / 2
 
+// maximumDomainLength is the greatest number of characters a creator domain
+// may contain. RFC 1035 section 2.3.4, "Size limits", restricts the total
+// length of a domain name to 255 octets or less, counting the label octets
+// and the length octet that precedes each label. An OWID stores the
+// presentation form of the name, being the text "example.com", where the
+// dots take the place of those label length octets and the trailing root
+// octet has no text equivalent, so the same limit is two characters shorter
+// here.
+const maximumDomainLength = 253
+
+// readString reads the creator domain, being the text of the domain
+// followed by a zero terminator. The terminator came from the sender, so
+// the search for it stops at maximumDomainLength rather than running to the
+// end of the buffer, which means the cost of a buffer with no terminator is
+// bounded by the constant and not by the length of the input. A domain
+// longer than the maximum and a domain with no terminator are refused the
+// same way, because neither has a terminator inside the window, and nothing
+// is consumed when either is refused.
 func readString(b *bytes.Buffer) (string, error) {
-	s, err := b.ReadBytes(0)
-	if err == nil {
-		return string(s[0 : len(s)-1]), err
+	w := b.Bytes()
+	if len(w) > maximumDomainLength+1 {
+		w = w[:maximumDomainLength+1]
 	}
-	return "", err
+	i := bytes.IndexByte(w, 0)
+	if i < 0 {
+		if len(w) > maximumDomainLength {
+			return "", fmt.Errorf(
+				"domain has no terminator in the first '%d' bytes, so it "+
+					"is either longer than the '%d' character maximum or "+
+					"has no terminator at all",
+				len(w),
+				maximumDomainLength)
+		}
+		return "", fmt.Errorf(
+			"domain has no terminator in the '%d' bytes present",
+			len(w))
+	}
+	b.Next(i + 1)
+	return string(w[:i]), nil
+}
+
+// checkDomainLength refuses a creator domain longer than the published
+// maximum. Go counts the length of a string in bytes and the reader walks
+// bytes, so the two halves measure the same thing and a name written with
+// characters outside the ASCII range is held to the same number of bytes
+// the reader will search.
+func checkDomainLength(domain string) error {
+	if len(domain) > maximumDomainLength {
+		return fmt.Errorf(
+			"domain length '%d' exceeds the '%d' character maximum",
+			len(domain),
+			maximumDomainLength)
+	}
+	return nil
 }
 
 func readSignature(b *bytes.Buffer) ([]byte, error) {
@@ -61,15 +109,54 @@ func writeSignature(b *bytes.Buffer, v []byte) error {
 	return writeByteArrayNoLength(b, v)
 }
 
+// readByteArray reads a length prefixed byte array. The count came from
+// the sender, so a count beyond the bytes present is refused rather than
+// returning a short slice that the caller would take for the whole array.
+// Nothing is allocated from the count, as Next returns a view of the
+// buffer.
 func readByteArray(b *bytes.Buffer) ([]byte, error) {
 	l, err := readUint32(b)
 	if err != nil {
 		return nil, err
 	}
-	return b.Next(int(l)), err
+	if uint64(l) > uint64(b.Len()) {
+		return nil, fmt.Errorf(
+			"byte array length '%d' exceeds the '%d' bytes present",
+			l,
+			b.Len())
+	}
+	return b.Next(int(l)), nil
+}
+
+// readPayload reads the OWID payload. The declared length came from the
+// sender, so it is checked against the bytes present before anything is
+// sized by it. The declared length must leave at least the 64 byte
+// signature after the payload. FromBuffer consumes exactly one OWID and
+// leaves any framed bytes after it for its caller; FromByteArray separately
+// requires that no bytes remain.
+func readPayload(b *bytes.Buffer) ([]byte, error) {
+	l, err := readUint32(b)
+	if err != nil {
+		return nil, err
+	}
+	remaining := b.Len()
+	if uint64(l)+signatureLength > uint64(remaining) {
+		return nil, fmt.Errorf(
+			"OWID payload length '%d' exceeds the '%d' bytes "+
+				"present, of which the final '%d' must be the signature",
+			l,
+			remaining,
+			signatureLength)
+	}
+	return b.Next(int(l)), nil
 }
 
 func writeByteArray(b *bytes.Buffer, v []byte) error {
+	if uint64(len(v)) > uint64(^uint32(0)) {
+		return fmt.Errorf(
+			"payload length '%d' exceeds the unsigned 32 bit limit",
+			len(v))
+	}
 	err := writeUint32(b, uint32(len(v)))
 	if err != nil {
 		return err
@@ -202,7 +289,17 @@ func writeUint32(b *bytes.Buffer, i uint32) error {
 	return err
 }
 
+// writeString writes the creator domain, being the text of the domain
+// followed by a zero terminator. A domain longer than the published maximum
+// is refused here as well as at the points where a domain enters the
+// library, so a value that arrives by another route, such as an assignment
+// to the exported Domain field or JSON unmarshalling, cannot reach the wire
+// in a form this same library would refuse to read back.
 func writeString(b *bytes.Buffer, s string) error {
+	err := checkDomainLength(s)
+	if err != nil {
+		return err
+	}
 	l, err := b.WriteString(s)
 	if err == nil {
 

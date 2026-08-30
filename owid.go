@@ -70,11 +70,18 @@ func (o *OWID) PayloadAsBase64() string {
 	return base64.StdEncoding.EncodeToString(o.Payload)
 }
 
-// NewOwid creates a new unsigned instance of the OWID structure.
+// NewOwid creates a new unsigned instance of the OWID structure. A domain
+// longer than the published maximum is refused here so the caller is told
+// when they supply the domain, which is before anything is signed, rather
+// than when the OWID is later serialised.
 func NewOwid(
 	domain string,
 	date time.Time,
 	payload []byte) (*OWID, error) {
+	err := checkDomainLength(domain)
+	if err != nil {
+		return nil, err
+	}
 	var o OWID
 	o.Version = owidVersion3
 	o.Domain = domain
@@ -184,8 +191,13 @@ func (o *OWID) ToQuery(k string, q *url.Values) error {
 
 // AsByteArray returns the OWID as a byte array.
 func (o *OWID) AsByteArray() ([]byte, error) {
+	length, err := o.byteLength(true)
+	if err != nil {
+		return nil, err
+	}
 	var f bytes.Buffer
-	err := o.ToBuffer(&f)
+	f.Grow(length)
+	err = o.ToBuffer(&f)
 	if err != nil {
 		return nil, err
 	}
@@ -222,12 +234,11 @@ func FromBuffer(b *bytes.Buffer) (*OWID, error) {
 	switch o.Version {
 	case owidEmpty:
 		break
-	case owidVersion1:
-		fromBuffer(b, &o)
-	case owidVersion2:
-		fromBuffer(b, &o)
-	case owidVersion3:
-		fromBuffer(b, &o)
+	case owidVersion1, owidVersion2, owidVersion3:
+		err = fromBuffer(b, &o)
+		if err != nil {
+			return nil, err
+		}
 	default:
 		return nil, fmt.Errorf("version '%d' not supported", o.Version)
 	}
@@ -236,7 +247,17 @@ func FromBuffer(b *bytes.Buffer) (*OWID, error) {
 
 // FromByteArray creates a single OWID from the byte array.
 func FromByteArray(b []byte) (*OWID, error) {
-	return FromBuffer(bytes.NewBuffer(b))
+	buffer := bytes.NewBuffer(b)
+	o, err := FromBuffer(buffer)
+	if err != nil {
+		return nil, err
+	}
+	if buffer.Len() != 0 {
+		return nil, fmt.Errorf(
+			"OWID contains '%d' bytes after the envelope",
+			buffer.Len())
+	}
+	return o, nil
 }
 
 // FromBase64 creates a single OWID from the base 64 string.
@@ -264,8 +285,25 @@ func FromForm(q *url.Values, n string) (*OWID, error) {
 // dataForCrypto adds the fields from this OWID to the byte buffer without
 // the signature. Adds all the bytes of the others to the data.
 func (o *OWID) dataForCrypto(others []*OWID) ([]byte, error) {
+	length, err := o.byteLength(false)
+	if err != nil {
+		return nil, err
+	}
+	for _, other := range others {
+		if other != nil {
+			otherLength, lengthErr := other.byteLength(true)
+			if lengthErr != nil {
+				return nil, lengthErr
+			}
+			length, lengthErr = addByteLength(length, otherLength)
+			if lengthErr != nil {
+				return nil, lengthErr
+			}
+		}
+	}
 	var f bytes.Buffer
-	err := o.toBufferNoSignature(&f)
+	f.Grow(length)
+	err = o.toBufferNoSignature(&f)
 	if err != nil {
 		return nil, err
 	}
@@ -280,6 +318,54 @@ func (o *OWID) dataForCrypto(others []*OWID) ([]byte, error) {
 	return f.Bytes(), nil
 }
 
+// byteLength returns the exact number of bytes serialization will write.
+// Calculating it first lets bytes.Buffer allocate once for a matching large
+// payload instead of repeatedly growing and copying its backing array.
+func (o *OWID) byteLength(includeSignature bool) (int, error) {
+	var dateLength int
+	switch o.Version {
+	case owidVersion1:
+		dateLength = 2
+	case owidVersion2, owidVersion3:
+		dateLength = 4
+	default:
+		return 0, fmt.Errorf("version '%d' not supported", o.Version)
+	}
+	if uint64(len(o.Payload)) > uint64(^uint32(0)) {
+		return 0, fmt.Errorf(
+			"payload length '%d' exceeds the unsigned 32 bit limit",
+			len(o.Payload))
+	}
+	if includeSignature && len(o.Signature) != signatureLength {
+		return 0, fmt.Errorf(
+			"provided signature length '%d' not compaitable with '%d' "+
+				"OWID signature length",
+			len(o.Signature),
+			signatureLength)
+	}
+	length := 0
+	parts := []int{1, len(o.Domain), 1, dateLength, 4, len(o.Payload)}
+	if includeSignature {
+		parts = append(parts, signatureLength)
+	}
+	for _, part := range parts {
+		var err error
+		length, err = addByteLength(length, part)
+		if err != nil {
+			return 0, err
+		}
+	}
+	return length, nil
+}
+
+func addByteLength(left int, right int) (int, error) {
+	maxInt := int(^uint(0) >> 1)
+	if right < 0 || left > maxInt-right {
+		return 0, fmt.Errorf("OWID byte length exceeds Go int capacity")
+	}
+	return left + right, nil
+}
+
 func fromBuffer(b *bytes.Buffer, o *OWID) error {
 	var err error
 	o.Domain, err = readString(b)
@@ -290,7 +376,7 @@ func fromBuffer(b *bytes.Buffer, o *OWID) error {
 	if err != nil {
 		return err
 	}
-	o.Payload, err = readByteArray(b)
+	o.Payload, err = readPayload(b)
 	if err != nil {
 		return err
 	}

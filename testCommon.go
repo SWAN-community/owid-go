@@ -63,12 +63,15 @@ func newTestCreator(
 	if err != nil {
 		return nil, err
 	}
-	c := newCreator(
+	c, err := newCreator(
 		domain,
 		privateKey,
 		publicKey,
 		name,
 		contractURL)
+	if err != nil {
+		return nil, err
+	}
 	return c, nil
 }
 
