@@ -74,12 +74,15 @@ func main() {
 		panic(err)
 	}
 
-	// Create and sign an OWID containing the payload.
-	o, err := owid.NewOwid("example.com", time.Now().UTC(), []byte("example"))
+	// Create and sign an OWID containing the payload. Creation and signing
+	// are one step: an OWID cannot exist in an unsigned state, because an
+	// unsigned one is indistinguishable from a signed one to whatever
+	// handles it next.
+	creator, err := owid.NewCreator("example.com", crypto)
 	if err != nil {
 		panic(err)
 	}
-	err = o.Sign(crypto, nil)
+	o, err := creator.Create([]byte("example"))
 	if err != nil {
 		panic(err)
 	}
@@ -114,18 +117,29 @@ valid, err := o.VerifyWithPublicKey(publicKeyPem)
 valid, err = o.Verify("https")
 ```
 
-OWIDs can be chained by passing other OWIDs to the sign operation. The same
+OWIDs can be chained by passing other OWIDs to the create operation. The same
 OWIDs must be provided again for verification to succeed.
 
 ```go
-root, _ := owid.NewOwid("example.com", time.Now().UTC(), []byte("root"))
-root.Sign(crypto, nil)
-
-child, _ := owid.NewOwid("example.com", time.Now().UTC(), []byte("child"))
-child.Sign(crypto, []*owid.OWID{root})
+root, _ := creator.Create([]byte("root"))
+child, _ := creator.Create([]byte("child"), root)
 
 // True only when the same others are supplied in the same order.
 valid, _ := child.VerifyWithCrypto(crypto, []*owid.OWID{root})
+```
+
+Reading an OWID reports why it is not one rather than returning an
+undifferentiated error, so a caller can tell a truncated envelope from a
+declaration that disagrees with the bytes present:
+
+```go
+o, err := owid.FromBase64(value)
+if err != nil {
+    var pe *owid.ParseError
+    if errors.As(err, &pe) && pe.Status == owid.ByteCountMismatch {
+        // the declared payload does not match what arrived
+    }
+}
 ```
 
 To run an OWID creator service use `AddHandlers` with a configuration, store

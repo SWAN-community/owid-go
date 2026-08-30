@@ -85,13 +85,13 @@ func TestPayloadLengthMatchesParses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if o.Domain != "51d.es" {
-		t.Errorf("expected domain '51d.es', found '%s'", o.Domain)
+	if o.domain != "51d.es" {
+		t.Errorf("expected domain '51d.es', found '%s'", o.domain)
 	}
-	if bytes.Equal(o.Payload, payloadLengthPayload) == false {
+	if bytes.Equal(o.payload, payloadLengthPayload) == false {
 		t.Error("payload does not match the input")
 	}
-	if bytes.Equal(o.Signature, payloadLengthSignature) == false {
+	if bytes.Equal(o.signature, payloadLengthSignature) == false {
 		t.Error("signature does not match the input")
 	}
 }
@@ -108,7 +108,7 @@ func TestPayloadLengthMatchingOneMebibyteParses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("matching payload should parse: %v", err)
 	}
-	if bytes.Equal(o.Payload, payload) == false {
+	if bytes.Equal(o.payload, payload) == false {
 		t.Fatal("payload does not match the input")
 	}
 }
@@ -226,10 +226,10 @@ func TestPayloadLengthEmptyPayloadParses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(o.Payload) != 0 {
-		t.Errorf("expected an empty payload, found '%d' bytes", len(o.Payload))
+	if len(o.payload) != 0 {
+		t.Errorf("expected an empty payload, found '%d' bytes", len(o.payload))
 	}
-	if bytes.Equal(o.Signature, payloadLengthSignature) == false {
+	if bytes.Equal(o.signature, payloadLengthSignature) == false {
 		t.Error("signature does not match the input")
 	}
 }
@@ -248,7 +248,7 @@ func TestFromBufferLeavesFollowingEnvelopeUnread(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes.Equal(first.Payload, payloadLengthPayload) == false {
+	if bytes.Equal(first.payload, payloadLengthPayload) == false {
 		t.Fatal("first payload does not match")
 	}
 	if framed.Len() != len(secondBytes) {
@@ -259,7 +259,7 @@ func TestFromBufferLeavesFollowingEnvelopeUnread(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(second.Payload) != 0 || framed.Len() != 0 {
+	if len(second.payload) != 0 || framed.Len() != 0 {
 		t.Fatal("second envelope was not consumed exactly")
 	}
 }

@@ -177,23 +177,6 @@ func writeByteArrayNoLength(b *bytes.Buffer, v []byte) error {
 	return err
 }
 
-func readTime(b *bytes.Buffer) (time.Time, error) {
-	var t time.Time
-	d, err := readByteArray(b)
-	if err == nil {
-		t.GobDecode(d)
-	}
-	return t, err
-}
-
-func writeTime(b *bytes.Buffer, t time.Time) error {
-	d, err := t.GobEncode()
-	if err != nil {
-		return err
-	}
-	return writeByteArray(b, d)
-}
-
 func readDate(b *bytes.Buffer, v byte) (time.Time, error) {
 	switch v {
 	case owidVersion1:

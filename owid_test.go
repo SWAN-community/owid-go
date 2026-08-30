@@ -153,7 +153,7 @@ func TestOWIDModifiedDomain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o.Domain = "different.com"
+	o.domain = "different.com"
 	v, err := o.VerifyWithPublicKey(c.publicKey)
 	if err != nil {
 		t.Fatal(err)
@@ -280,11 +280,11 @@ func TestOWIDVersion1(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n.Version != owidVersion1 {
-		t.Errorf("expected version '%d', found '%d'", owidVersion1, n.Version)
+	if n.version != owidVersion1 {
+		t.Errorf("expected version '%d', found '%d'", owidVersion1, n.version)
 	}
 	compareVersionFields(t, o, n)
-	testCompareDate(t, n.Date, o.Date)
+	testCompareDate(t, n.date, o.date)
 }
 
 // TestOWIDVersion2 verifies that a buffer constructed in the version 2
@@ -303,12 +303,12 @@ func TestOWIDVersion2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n.Version != owidVersion2 {
-		t.Errorf("expected version '%d', found '%d'", owidVersion2, n.Version)
+	if n.version != owidVersion2 {
+		t.Errorf("expected version '%d', found '%d'", owidVersion2, n.version)
 	}
 	compareVersionFields(t, o, n)
-	if n.Date.Equal(o.Date) == false {
-		t.Errorf("expected date '%v', found '%v'", o.Date, n.Date)
+	if n.date.Equal(o.date) == false {
+		t.Errorf("expected date '%v', found '%v'", o.date, n.date)
 	}
 }
 
@@ -342,19 +342,19 @@ func toVersionBuffer(t *testing.T, o *OWID, v byte) *bytes.Buffer {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = writeString(&b, o.Domain)
+	err = writeString(&b, o.domain)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = writeDate(&b, o.Date, v)
+	err = writeDate(&b, o.date, v)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = writeByteArray(&b, o.Payload)
+	err = writeByteArray(&b, o.payload)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = writeSignature(&b, o.Signature)
+	err = writeSignature(&b, o.signature)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,13 +363,13 @@ func toVersionBuffer(t *testing.T, o *OWID, v byte) *bytes.Buffer {
 
 // compareVersionFields checks the fields that are common to all versions.
 func compareVersionFields(t *testing.T, o *OWID, n *OWID) {
-	if n.Domain != o.Domain {
-		t.Errorf("expected domain '%s', found '%s'", o.Domain, n.Domain)
+	if n.domain != o.domain {
+		t.Errorf("expected domain '%s', found '%s'", o.domain, n.domain)
 	}
-	if bytes.Equal(n.Payload, o.Payload) == false {
+	if bytes.Equal(n.payload, o.payload) == false {
 		t.Error("payload does not match the input")
 	}
-	if bytes.Equal(n.Signature, o.Signature) == false {
+	if bytes.Equal(n.signature, o.signature) == false {
 		t.Error("signature does not match the input")
 	}
 }
@@ -380,11 +380,11 @@ func newOWID(creator *Creator) (*OWID, error) {
 		return nil, err
 	}
 	payload := []byte(testPayload)
-	o, err := NewOwid(testDomain, testDate, payload)
+	o, err := newOwid(testDomain, testDate, payload)
 	if err != nil {
 		return nil, err
 	}
-	o.Sign(c, nil)
+	o.sign(c, nil)
 	return o, nil
 }
 
@@ -399,8 +399,8 @@ func corrupt(creator *Creator, a []byte, i int) error {
 }
 
 func (o *OWID) compare(other *OWID) bool {
-	return o.Version == other.Version &&
-		o.Date == other.Date &&
-		bytes.Equal(o.Signature, other.Signature) &&
-		bytes.Equal(o.Payload, other.Payload)
+	return o.version == other.version &&
+		o.date == other.date &&
+		bytes.Equal(o.signature, other.signature) &&
+		bytes.Equal(o.payload, other.payload)
 }

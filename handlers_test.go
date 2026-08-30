@@ -631,7 +631,7 @@ func TestVerifyClientSendsDate(t *testing.T) {
 		t.Error("client verify against the dated endpoint should succeed")
 	}
 	want := strconv.FormatUint(
-		uint64(o.Date.Sub(ioDateBase).Minutes()), 10)
+		uint64(o.date.Sub(ioDateBase).Minutes()), 10)
 	if gotDate != want {
 		t.Errorf("client sent date %q, want %q", gotDate, want)
 	}
