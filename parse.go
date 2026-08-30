@@ -40,7 +40,9 @@ func parseExact(b []byte) (*OWID, error) {
 	}
 	total := len(b)
 	if total < 1 {
-		return nil, newParseError(UnexpectedEnd, "no version byte")
+		// Nothing was supplied, which is not the same as data that stopped
+		// part way through a field.
+		return nil, newParseError(MissingInput, "")
 	}
 
 	at := 1

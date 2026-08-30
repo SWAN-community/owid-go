@@ -150,6 +150,59 @@ func (o *OWID) VerifyWithCrypto(c *Crypto, others []*OWID) (bool, error) {
 	return c.VerifyByteArray(b, o.signature)
 }
 
+// SignatureStatusWithPublicKey says whether the signature is genuine, or why
+// that could not be decided.
+//
+// Only two of the answers are about the signature. The rest say the question
+// could not be answered, which is a different thing and must never be reported
+// as a forgery. A key that cannot be decoded leaves the signature unjudged,
+// and a caller acting on "invalid" would reject good identifiers during an
+// outage. On 30 August 2026 the key end points served PEM a strict parser
+// rejects and every offline verification failed, with the keys and the
+// identifiers both fine.
+func (o *OWID) SignatureStatusWithPublicKey(
+	public string,
+	others ...*OWID) SignatureStatus {
+	if public == "" {
+		return KeyUnavailable
+	}
+	if len(o.signature) != signatureLength {
+		return InvalidSignatureLength
+	}
+	c, err := NewCryptoVerifyOnly(public)
+	if err != nil {
+		// The key is the thing at fault, not the identifier.
+		return InvalidKey
+	}
+	return o.SignatureStatusWithCrypto(c, others...)
+}
+
+// SignatureStatusWithCrypto is SignatureStatusWithPublicKey for a key that has
+// already been read.
+func (o *OWID) SignatureStatusWithCrypto(
+	c *Crypto,
+	others ...*OWID) SignatureStatus {
+	if c == nil {
+		return KeyUnavailable
+	}
+	if len(o.signature) != signatureLength {
+		return InvalidSignatureLength
+	}
+	b, err := o.dataForCrypto(others)
+	if err != nil {
+		// The identifier is fine and the question could not be put.
+		return VerificationError
+	}
+	matched, err := c.VerifyByteArray(b, o.signature)
+	if err != nil {
+		return VerificationError
+	}
+	if matched {
+		return SignatureValid
+	}
+	return SignatureInvalid
+}
+
 // VerifyWithPublicKey this OWID and it's ancestors using the public key in PEM
 // format provided.
 func (o *OWID) VerifyWithPublicKey(
