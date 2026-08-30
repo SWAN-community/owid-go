@@ -30,6 +30,16 @@ func HandlerRegister(s *Services) http.HandlerFunc {
 		d.Domain = r.Host
 		d.Name = ""
 
+		// The domain comes from the Host header of the request, so refuse a
+		// host longer than the published maximum before anything else is
+		// done. A creator registered under such a domain would sign OWIDs
+		// that this same library could not read back.
+		err := checkDomainLength(d.Domain)
+		if err != nil {
+			returnServerError(s, w, err)
+			return
+		}
+
 		// Check that the domain has not already been registered.
 		n, err := s.store.GetCreator(r.Host)
 		if err != nil {
@@ -94,7 +104,7 @@ func storeCreator(s *Services, d *Register) error {
 		d.Error = err.Error()
 		return err
 	}
-	c := newCreator(
+	c, err := newCreator(
 		d.Domain,
 		privateKey,
 		publicKey,

@@ -70,11 +70,18 @@ func (o *OWID) PayloadAsBase64() string {
 	return base64.StdEncoding.EncodeToString(o.Payload)
 }
 
-// NewOwid creates a new unsigned instance of the OWID structure.
+// NewOwid creates a new unsigned instance of the OWID structure. A domain
+// longer than the published maximum is refused here so the caller is told
+// when they supply the domain, which is before anything is signed, rather
+// than when the OWID is later serialised.
 func NewOwid(
 	domain string,
 	date time.Time,
 	payload []byte) (*OWID, error) {
+	err := checkDomainLength(domain)
+	if err != nil {
+		return nil, err
+	}
 	var o OWID
 	o.Version = owidVersion3
 	o.Domain = domain

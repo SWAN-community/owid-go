@@ -71,6 +71,21 @@ func readString(b *bytes.Buffer) (string, error) {
 	return string(w[:i]), nil
 }
 
+// checkDomainLength refuses a creator domain longer than the published
+// maximum. Go counts the length of a string in bytes and the reader walks
+// bytes, so the two halves measure the same thing and a name written with
+// characters outside the ASCII range is held to the same number of bytes
+// the reader will search.
+func checkDomainLength(domain string) error {
+	if len(domain) > maximumDomainLength {
+		return fmt.Errorf(
+			"domain length '%d' exceeds the '%d' character maximum",
+			len(domain),
+			maximumDomainLength)
+	}
+	return nil
+}
+
 func readSignature(b *bytes.Buffer) ([]byte, error) {
 	v := b.Next(int(signatureLength))
 	if len(v) != signatureLength {
@@ -274,7 +289,17 @@ func writeUint32(b *bytes.Buffer, i uint32) error {
 	return err
 }
 
+// writeString writes the creator domain, being the text of the domain
+// followed by a zero terminator. A domain longer than the published maximum
+// is refused here as well as at the points where a domain enters the
+// library, so a value that arrives by another route, such as an assignment
+// to the exported Domain field or JSON unmarshalling, cannot reach the wire
+// in a form this same library would refuse to read back.
 func writeString(b *bytes.Buffer, s string) error {
+	err := checkDomainLength(s)
+	if err != nil {
+		return err
+	}
 	l, err := b.WriteString(s)
 	if err == nil {
 

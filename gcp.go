@@ -133,12 +133,16 @@ func (f *Firebase) fetchCreators() (map[string]*Creator, error) {
 		if err != nil {
 			return nil, err
 		}
-		cs[item.Domain] = newCreator(
+		c, err := newCreator(
 			item.Domain,
 			item.PrivateKey,
 			item.PublicKey,
 			item.Name,
 			item.ContractURL)
+		if err != nil {
+			return nil, err
+		}
+		cs[item.Domain] = c
 	}
 	return cs, nil
 }

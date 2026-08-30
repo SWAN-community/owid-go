@@ -19,7 +19,11 @@ package owid
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
+	"net/http"
+	"net/url"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -187,5 +191,212 @@ func TestDomainLengthLibraryOutputParses(t *testing.T) {
 	}
 	if o.compare(n) == false {
 		t.Error("library output did not round trip")
+	}
+}
+
+// The write half of the same bound. A domain longer than the published
+// maximum is refused where a domain enters the library, being the OWID
+// factory, the creator factory that the registration end point and every
+// store build creators through, the JSON route a creator takes out of a
+// local store, and the registration end point itself, which takes the
+// domain from the Host header of the request. Serialisation refuses one as
+// well, so a domain that arrives by another route, such as an assignment to
+// the exported Domain field, cannot reach the wire in a form this same
+// library would refuse to read back.
+
+// requireDomainLengthError checks that the error is present and that it
+// names the maximum, since a caller told only that the domain is wrong
+// cannot tell how much shorter it has to be.
+func requireDomainLengthError(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("a domain over the maximum should be refused")
+	}
+	if strings.Contains(
+		err.Error(),
+		strconv.Itoa(maximumDomainLength)) == false {
+		t.Errorf(
+			"expected the '%d' character maximum to be named, found '%s'",
+			maximumDomainLength,
+			err.Error())
+	}
+}
+
+// TestDomainLengthWriteMaximumRoundTrips proves that a creator whose domain
+// is exactly the published maximum still creates, signs and serialises an
+// OWID, that the result parses back to the same domain and that the
+// signature over that domain still verifies.
+func TestDomainLengthWriteMaximumRoundTrips(t *testing.T) {
+	d := domainLengthName(maximumDomainLength)
+	c, err := newTestCreator(d, testOrgName, registerContractURL)
+	if err != nil {
+		t.Fatalf("a domain of the maximum length should be accepted: %v", err)
+	}
+	o, err := c.CreateOWIDandSign([]byte(testPayload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := o.AsByteArray()
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := FromByteArray(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n.Domain != d {
+		t.Errorf("expected domain '%s', found '%s'", d, n.Domain)
+	}
+	v, err := c.Verify(n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v == false {
+		t.Error("the round tripped OWID did not verify")
+	}
+}
+
+// TestDomainLengthEmptyDomainUnchanged proves that an empty domain behaves
+// as it did before the bound, being written as a bare terminator and read
+// back as an empty string.
+func TestDomainLengthEmptyDomainUnchanged(t *testing.T) {
+	o, err := NewOwid("", testDate, []byte(testPayload))
+	if err != nil {
+		t.Fatalf("an empty domain should be accepted: %v", err)
+	}
+	o.Signature = domainLengthSignature
+	a, err := o.AsByteArray()
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := FromByteArray(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n.Domain != "" {
+		t.Errorf("expected an empty domain, found '%s'", n.Domain)
+	}
+}
+
+// TestDomainLengthNewOwidOverMaximumRefused proves that the OWID factory
+// refuses a domain one character over the maximum.
+func TestDomainLengthNewOwidOverMaximumRefused(t *testing.T) {
+	_, err := NewOwid(
+		domainLengthName(maximumDomainLength+1),
+		testDate,
+		[]byte(testPayload))
+	requireDomainLengthError(t, err)
+}
+
+// TestDomainLengthCreatorOverMaximumRefused proves that the creator factory
+// refuses a domain one character over the maximum, so a creator that would
+// sign unreadable OWIDs is never built.
+func TestDomainLengthCreatorOverMaximumRefused(t *testing.T) {
+	_, err := newTestCreator(
+		domainLengthName(maximumDomainLength+1),
+		testOrgName,
+		registerContractURL)
+	requireDomainLengthError(t, err)
+}
+
+// TestDomainLengthCreatorJSONOverMaximumRefused proves that a creator read
+// back from a store as JSON, which does not pass through the creator
+// factory, is refused the same way.
+func TestDomainLengthCreatorJSONOverMaximumRefused(t *testing.T) {
+	j, err := json.Marshal(map[string]string{
+		"domain": domainLengthName(maximumDomainLength + 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var c Creator
+	requireDomainLengthError(t, c.UnmarshalJSON(j))
+}
+
+// TestDomainLengthSerialisationOverMaximumRefused proves that a domain
+// assigned straight to the exported field, which passes no factory at all,
+// is still refused when the OWID is serialised.
+func TestDomainLengthSerialisationOverMaximumRefused(t *testing.T) {
+	var o OWID
+	o.Version = owidVersion3
+	o.Domain = domainLengthName(maximumDomainLength + 1)
+	o.Date = testDate
+	o.Payload = domainLengthPayload
+	o.Signature = domainLengthSignature
+	_, err := o.AsByteArray()
+	requireDomainLengthError(t, err)
+}
+
+// TestDomainLengthRegisterOverMaximumRefused proves that the registration
+// end point refuses a Host header longer than the maximum, so the person
+// registering is told at that point, and that nothing is stored for it.
+func TestDomainLengthRegisterOverMaximumRefused(t *testing.T) {
+	s, err := getServices()
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := domainLengthName(maximumDomainLength + 1)
+	rr := sendRaw(
+		t,
+		HandlerRegister(s),
+		d,
+		"/owid/api/v1/register",
+		url.Values{})
+	if rr == nil {
+		t.Fatal("no response from the register handler")
+	}
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf(
+			"expected status '%d', found '%d'",
+			http.StatusInternalServerError,
+			rr.Code)
+	}
+	if strings.Contains(
+		rr.Body.String(),
+		strconv.Itoa(maximumDomainLength)) == false {
+		t.Errorf(
+			"expected the maximum named in the response, found '%s'",
+			rr.Body.String())
+	}
+	c, err := s.store.GetCreator(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c != nil {
+		t.Error("a domain over the maximum should not be registered")
+	}
+}
+
+// TestDomainLengthRefusedBeforeSigning proves that a domain over the
+// maximum is refused before any signature is computed, since signing a
+// value that will be refused is wasted work. The creator holds a private
+// key that cannot be parsed, so had the refusal come after the signing step
+// the error would name the key rather than the maximum. The creator is
+// built directly because the creator factory now refuses the domain.
+func TestDomainLengthRefusedBeforeSigning(t *testing.T) {
+	c := Creator{
+		domain:     domainLengthName(maximumDomainLength + 1),
+		privateKey: "not a private key"}
+	_, err := c.CreateOWIDandSign([]byte(testPayload))
+	requireDomainLengthError(t, err)
+}
+
+// TestDomainLengthSigningReachedAtMaximum proves that the ordering test
+// above fails for the reason it claims. The same unparsable private key
+// with a domain of exactly the maximum passes the domain check, reaches the
+// signing step and reports the key, which shows that the signing step is
+// live and would have reported the key first had the domain check not run
+// before it.
+func TestDomainLengthSigningReachedAtMaximum(t *testing.T) {
+	c := Creator{
+		domain:     domainLengthName(maximumDomainLength),
+		privateKey: "not a private key"}
+	_, err := c.CreateOWIDandSign([]byte(testPayload))
+	if err == nil {
+		t.Fatal("an unparsable private key should be refused")
+	}
+	if strings.Contains(err.Error(), strconv.Itoa(maximumDomainLength)) {
+		t.Errorf(
+			"expected the key to be reported, found '%s'",
+			err.Error())
 	}
 }

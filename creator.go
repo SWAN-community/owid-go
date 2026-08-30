@@ -136,10 +136,15 @@ func (c *Creator) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON called by json.Unmarshall unmarshals a node from JSON and turns
 // it into a new node. As the node is marshalled to JSON by converting it to a
 // map, the unmarshalling from JSON needs to handle the type of each field
-// correctly.
+// correctly. A creator read back from a store this way does not pass
+// through newCreator, so the domain length is checked here as well.
 func (c *Creator) UnmarshalJSON(b []byte) error {
 	var d map[string]string
 	err := json.Unmarshal(b, &d)
+	if err != nil {
+		return err
+	}
+	err = checkDomainLength(d["domain"])
 	if err != nil {
 		return err
 	}
@@ -151,17 +156,26 @@ func (c *Creator) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// newCreator returns a creator for the domain given. Every creator is built
+// here, whether it comes from the registration end point or from a store, so
+// a domain longer than the published maximum is refused here and the caller
+// is told at that point rather than when the first OWID the creator makes is
+// read by someone else.
 func newCreator(
 	domain string,
 	privateKey string,
 	publicKey string,
 	name string,
-	contractURL string) *Creator {
+	contractURL string) (*Creator, error) {
+	err := checkDomainLength(domain)
+	if err != nil {
+		return nil, err
+	}
 	var c Creator
 	c.domain = domain
 	c.privateKey = privateKey
 	c.publicKey = publicKey
 	c.name = name
 	c.contractURL = contractURL
-	return &c
+	return &c, nil
 }
