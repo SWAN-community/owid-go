@@ -114,7 +114,9 @@ func parseFrom(b []byte, exact bool) (*OWID, int, error) {
 		}
 		// Version 1 counts days, not hours. The other ports differ here and
 		// each one matches its own history; this reader must not quietly
-		// change what a version 1 OWID means in Go.
+		// change what a version 1 OWID means in Go. Two bytes reach 65,535
+		// days, which is June 2199, and a time.Duration holds about 292
+		// years, so this arithmetic cannot overflow and needs no guard.
 		days := int(b[at])<<8 | int(b[at+1])
 		at += 2
 		date = ioDateBase.Add(time.Duration(days) * time.Hour * 24)
@@ -124,7 +126,9 @@ func parseFrom(b []byte, exact bool) (*OWID, int, error) {
 		}
 		minutes := binary.LittleEndian.Uint32(b[at : at+4])
 		at += 4
-		date = ioDateBase.Add(time.Duration(minutes) * time.Minute)
+		// Built through the calendar rather than a time.Duration, which
+		// wraps silently past April 2312 while the wire runs to 10186.
+		date = dateFromMinutes(minutes)
 	}
 
 	if total-at < 4 {

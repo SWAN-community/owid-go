@@ -26,6 +26,33 @@ import (
 // The base year for all dates encoded with the io time methods.
 var ioDateBase = time.Date(2020, time.Month(1), 1, 0, 0, 0, 0, time.UTC)
 
+// minutesPerDay splits a minute count into whole days and a remainder, so a
+// date can be built without a time.Duration ever holding the whole count.
+const minutesPerDay = 24 * 60
+
+// dateFromMinutes returns the date that a count of minutes since ioDateBase
+// stands for.
+//
+// The wire allows 4,294,967,295 minutes, which is 15 February 10186, and a
+// time.Time holds that. A time.Duration does not, because it is a count of
+// nanoseconds in an int64 and runs out at 153,722,867 minutes, which is
+// April 2312. Converting the whole count to a Duration therefore wrapped
+// silently past that point and the parse succeeded with a wrong date, which
+// is worse than a refusal. The count is split into whole days, added through
+// the calendar, and the minutes left over, which always fit.
+func dateFromMinutes(minutes uint32) time.Time {
+	days := int(minutes / minutesPerDay)
+	remainder := time.Duration(minutes%minutesPerDay) * time.Minute
+	return ioDateBase.AddDate(0, 0, days).Add(remainder)
+}
+
+// minutesSinceBase returns the count that dateFromMinutes turns back into t,
+// worked out on whole seconds so the span never has to fit a time.Duration.
+// A date before the base has no encoding and the caller rules it out.
+func minutesSinceBase(t time.Time) uint32 {
+	return uint32((t.Unix() - ioDateBase.Unix()) / 60)
+}
+
 // The maximum length of an OWID signature in bytes.
 const signatureLength = 64
 const halfSignatureLength = signatureLength / 2
@@ -123,7 +150,7 @@ func readDateV2(b *bytes.Buffer) (time.Time, error) {
 	if err != nil {
 		return time.Time{}, err
 	}
-	return ioDateBase.Add(time.Duration(i) * time.Minute), nil
+	return dateFromMinutes(i), nil
 }
 
 func writeDate(b *bytes.Buffer, t time.Time, v byte) error {
@@ -149,7 +176,7 @@ func writeDateV1(b *bytes.Buffer, t time.Time) error {
 }
 
 func writeDateV2(b *bytes.Buffer, t time.Time) error {
-	return writeUint32(b, uint32(t.Sub(ioDateBase).Minutes()))
+	return writeUint32(b, minutesSinceBase(t))
 }
 
 func writeByte(b *bytes.Buffer, i byte) error {
