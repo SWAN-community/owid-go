@@ -24,10 +24,24 @@
 // creator, which can be provided directly in PEM form or fetched over HTTP
 // from the creator's domain.
 //
-// OWIDs can be chained together. When other OWIDs are passed to the sign
-// operation their bytes form part of the signed data, which binds the new
-// OWID to them. The same OWIDs must be supplied again for verification to
-// succeed.
+// OWIDs can be chained together. When other OWIDs are passed to Create their
+// bytes form part of the signed data, which binds the new OWID to them. The
+// same OWIDs must be supplied again for verification to succeed.
+//
+// An OWID reaches calling code in one of two ways, being a read of bytes that
+// already are one, or a Creator that creates and signs one in a single step.
+// There is no exported constructor and the fields are read only, so an OWID
+// cannot be held in an unsigned state, because an unsigned one is
+// indistinguishable from a signed one to whatever handles it next.
+//
+// Bytes that are not an OWID are an ordinary result rather than a fault, so
+// FromBase64, FromByteArray, FromBuffer and FromForm report why with a
+// ParseError carrying a ParseStatus, which errors.As reaches. FromBuffer
+// reads one frame from the front of a buffer that carries more after it and
+// says nothing about what follows, while the others read a buffer holding one
+// OWID and nothing else. Whether the signature is genuine is a separate
+// question, answered by the SignatureStatus methods, which keep a signature
+// that does not match apart from a check that could not be made at all.
 //
 // The package also provides HTTP handlers to register creators, serve public
 // keys and verify OWIDs, along with storage implementations for AWS, Azure,

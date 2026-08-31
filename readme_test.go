@@ -17,7 +17,10 @@
 package owid
 
 import (
+	"bytes"
 	"errors"
+	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -137,5 +140,188 @@ func TestReadmeParseStatus(t *testing.T) {
 	if pe.Status != ByteCountMismatch {
 		t.Errorf(
 			"expected %s, got %s", ByteCountMismatch, pe.Status)
+	}
+}
+
+// TestReadmeVerifyWithPublicKey runs the public key example from the README.
+// The PEM a creator publishes for its own domain comes from
+// SubjectPublicKeyInfo, which is the only exported way to reach it and is
+// what the public-key end point serves, so the README says so.
+func TestReadmeVerifyWithPublicKey(t *testing.T) {
+	crypto, err := NewCrypto()
+	if err != nil {
+		t.Fatal(err)
+	}
+	creator, err := NewCreator("example.com", crypto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := creator.Create([]byte("example"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicKeyPem, err := creator.SubjectPublicKeyInfo()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	valid, err := o.VerifyWithPublicKey(publicKeyPem)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !valid {
+		t.Error("the OWID should verify with the creator's published key")
+	}
+	if got := o.SignatureStatusWithPublicKey(publicKeyPem); got != SignatureValid {
+		t.Errorf("expected %s, got %s", SignatureValid, got)
+	}
+}
+
+// TestReadmeFramedReading runs the framed reading example from the README,
+// being a buffer carrying one envelope after another where each read hands
+// back what it read and leaves the rest, because what follows may be the next
+// envelope rather than rubbish.
+func TestReadmeFramedReading(t *testing.T) {
+	crypto, err := NewCrypto()
+	if err != nil {
+		t.Fatal(err)
+	}
+	creator, err := NewCreator("example.com", crypto)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var framed bytes.Buffer
+	for _, payload := range []string{"first", "second"} {
+		o, err := creator.Create([]byte(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := o.ToBuffer(&framed); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var read []string
+	for framed.Len() > 0 {
+		o, err := FromBuffer(&framed)
+		if err != nil {
+			var pe *ParseError
+			if errors.As(err, &pe) && pe.Status == AbsentNode {
+				continue
+			}
+			t.Fatal(err)
+		}
+		read = append(read, o.PayloadAsString())
+	}
+	if len(read) != 2 || read[0] != "first" || read[1] != "second" {
+		t.Errorf("expected both payloads in order, got %v", read)
+	}
+}
+
+// TestReadmeAbsentNodeInARun runs the marker example from the README. The one
+// byte is stepped over on a framed read, which is what lets the same loop
+// reach the envelope after the gap, and the whole buffer read names the
+// marker as well because the byte means the same thing wherever it appears.
+func TestReadmeAbsentNodeInARun(t *testing.T) {
+	crypto, err := NewCrypto()
+	if err != nil {
+		t.Fatal(err)
+	}
+	creator, err := NewCreator("example.com", crypto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := creator.Create([]byte("after the gap"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var run bytes.Buffer
+	if err := EmptyToBuffer(&run); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.ToBuffer(&run); err != nil {
+		t.Fatal(err)
+	}
+
+	var read []string
+	markers := 0
+	for run.Len() > 0 {
+		next, err := FromBuffer(&run)
+		if err != nil {
+			var pe *ParseError
+			if errors.As(err, &pe) && pe.Status == AbsentNode {
+				markers++
+				continue
+			}
+			t.Fatal(err)
+		}
+		read = append(read, next.PayloadAsString())
+	}
+	if markers != 1 {
+		t.Errorf("expected one marker, got %d", markers)
+	}
+	if len(read) != 1 || read[0] != "after the gap" {
+		t.Errorf("expected the envelope after the gap, got %v", read)
+	}
+
+	// The whole buffer read has nothing to hand back and still names it.
+	_, err = FromByteArray([]byte{0})
+	var pe *ParseError
+	if !errors.As(err, &pe) || pe.Status != AbsentNode {
+		t.Errorf("expected %s, got %v", AbsentNode, err)
+	}
+}
+
+// TestReadmeBase64IsPadded holds the README to what this implementation
+// accepts, being the standard encoding with padding, because a caller sent
+// base 64 without it gets InvalidBase64 rather than an OWID.
+func TestReadmeBase64IsPadded(t *testing.T) {
+	crypto, err := NewCrypto()
+	if err != nil {
+		t.Fatal(err)
+	}
+	creator, err := NewCreator("example.com", crypto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A one byte payload leaves a length that needs padding.
+	o, err := creator.Create([]byte{7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := o.AsBase64()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stripped := strings.TrimRight(s, "=")
+	if stripped == s {
+		t.Fatal("this payload should produce padded base 64")
+	}
+
+	_, err = FromBase64(stripped)
+	var pe *ParseError
+	if !errors.As(err, &pe) || pe.Status != InvalidBase64 {
+		t.Errorf("expected %s, got %v", InvalidBase64, err)
+	}
+}
+
+// TestReadmeFormReachesTheStatus holds the README to its claim that FromForm
+// wraps a parse failure rather than turning it into text, so errors.As
+// reaches the reason on that surface too.
+func TestReadmeFormReachesTheStatus(t *testing.T) {
+	q := url.Values{}
+	q.Set("owid", "not base 64 at all!!")
+
+	_, err := FromForm(&q, "owid")
+	var pe *ParseError
+	if !errors.As(err, &pe) || pe.Status != InvalidBase64 {
+		t.Errorf("expected %s, got %v", InvalidBase64, err)
+	}
+
+	_, err = FromForm(&q, "missing")
+	if !errors.As(err, &pe) || pe.Status != MissingInput {
+		t.Errorf("expected %s, got %v", MissingInput, err)
 	}
 }

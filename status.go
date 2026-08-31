@@ -174,9 +174,11 @@ const (
 	SignatureInvalid
 
 	// InvalidSignatureLength means a signature field of the wrong length
-	// reached a verification surface directly. Truncation in raw external
-	// input is a parse UnexpectedEnd instead, because there the envelope never
-	// formed.
+	// reached a verification surface directly. A signature truncated in raw
+	// external input never gets this far, because there the envelope never
+	// formed and the read reports a parse failure instead, being
+	// ByteCountMismatch on a whole buffer where every byte is present and
+	// UnexpectedEnd on a frame that stopped early.
 	InvalidSignatureLength
 
 	// KeyUnavailable means no key could be obtained, or none covers the

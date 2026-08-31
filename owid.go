@@ -57,7 +57,7 @@ func init() {
 // OWID's signature covers its fields as they arrived, so a caller writing into
 // a returned slice would hold something whose signature no longer describes it.
 type OWID struct {
-	version   byte      // The byte version of the OWID. Version 1 only.
+	version   byte      // Versions 1, 2 and 3 are read. Version 3 is written.
 	domain    string    // Domain associated with the creator.
 	date      time.Time // The date and time to the nearest minute in UTC of the creation.
 	payload   []byte    // Array of bytes that form the identifier.
@@ -130,8 +130,8 @@ func newOwid(
 	return &o, nil
 }
 
-// Sign this OWID and and any other OWIDs using the Crypto instance provided.
-// sign is not exported, for the reason given on Creator.sign.
+// Sign this OWID and any other OWIDs using the Crypto instance provided.
+// sign is not exported, for the reason given on Creator.signOwid.
 func (o *OWID) sign(c *Crypto, others []*OWID) error {
 	b, err := o.dataForCrypto(others)
 	if err != nil {
@@ -457,27 +457,6 @@ func addByteLength(left int, right int) (int, error) {
 		return 0, fmt.Errorf("OWID byte length exceeds Go int capacity")
 	}
 	return left + right, nil
-}
-
-func fromBuffer(b *bytes.Buffer, o *OWID) error {
-	var err error
-	o.domain, err = readString(b)
-	if err != nil {
-		return err
-	}
-	o.date, err = readDate(b, o.version)
-	if err != nil {
-		return err
-	}
-	o.payload, err = readPayload(b)
-	if err != nil {
-		return err
-	}
-	o.signature, err = readSignature(b)
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
 func (o *OWID) toBufferNoSignature(b *bytes.Buffer) error {
