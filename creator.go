@@ -33,49 +33,60 @@ type Creator struct {
 	verify      *Crypto // Cached crypto instance for verification
 }
 
-// CreateOWID returns a new unsigned OWID from the creator containing the
-// payload provided.
-func (c *Creator) CreateOWID(payload []byte) (*OWID, error) {
-	return NewOwid(c.domain, time.Now(), payload)
-}
-
-// Sign the OWID by updating the signature field.
-func (c *Creator) Sign(o *OWID, others ...*OWID) error {
-	if c.domain != o.Domain {
-		return fmt.Errorf(
-			"can't use creator '%s' to sign OWID for domain '%s'",
-			c.domain,
-			o.Domain)
-	}
-	x, err := c.NewCryptoSignOnly()
-	if err != nil {
-		return err
-	}
-	return o.Sign(x, others)
-}
-
-// CreateOWIDandSign the OWID with the payload and signs the result.
-func (c *Creator) CreateOWIDandSign(
-	payload []byte,
-	others ...*OWID) (*OWID, error) {
-	o, err := c.CreateOWID(payload)
+// Create returns a new signed OWID from the creator carrying the payload, and
+// covering any others so that a tree can be verified as a whole.
+//
+// This is one of only two ways an OWID reaches calling code, the other being a
+// successful parse. The creator owns the version, the domain, the date and the
+// signature; a caller supplies the payload and nothing else, so there is no
+// moment at which a partly built OWID exists for anyone to hold or pass on.
+func (c *Creator) Create(payload []byte, others ...*OWID) (*OWID, error) {
+	o, err := newOwid(c.domain, time.Now(), payload)
 	if err != nil {
 		return nil, err
 	}
-	err = c.Sign(o, others...)
-	if err != nil {
+	if err = c.signOwid(o, others...); err != nil {
 		return nil, err
 	}
 	return o, nil
 }
 
+// Sign the OWID by updating the signature field.
+// sign is not exported. An OWID cannot exist in an unsigned state, so there
+// is nothing outside this package for a caller to sign, and re-signing one
+// that already exists would replace a signature the fields were read with.
+func (c *Creator) signOwid(o *OWID, others ...*OWID) error {
+	if c.domain != o.domain {
+		return fmt.Errorf(
+			"can't use creator '%s' to sign OWID for domain '%s'",
+			c.domain,
+			o.domain)
+	}
+	x, err := c.NewCryptoSignOnly()
+	if err != nil {
+		return err
+	}
+	return o.sign(x, others)
+}
+
+// CreateOWIDandSign creates the OWID with the payload and signs the result.
+//
+// Kept as the name callers already use. Create is the same operation named
+// for what it does, and both now go through the one path, because creation
+// and signing were never two steps a caller should be able to separate.
+func (c *Creator) CreateOWIDandSign(
+	payload []byte,
+	others ...*OWID) (*OWID, error) {
+	return c.Create(payload, others...)
+}
+
 // Verify the OWID and any other OWIDs are valid for this creator.
 func (c *Creator) Verify(o *OWID, others ...*OWID) (bool, error) {
-	if c.domain != o.Domain {
+	if c.domain != o.domain {
 		return false, fmt.Errorf(
 			"Can't use creator '%s' to verify OWID for domain '%s'",
 			c.domain,
-			o.Domain)
+			o.domain)
 	}
 	x, err := c.NewCryptoVerifyOnly()
 	if err != nil {
@@ -154,6 +165,29 @@ func (c *Creator) UnmarshalJSON(b []byte) error {
 	c.name = d["name"]
 	c.contractURL = d["contractURL"]
 	return nil
+}
+
+// NewCreator returns a creator for the domain, holding the key pair it will
+// sign with.
+//
+// A creator is now the only way to make an OWID, because an OWID cannot exist
+// in an unsigned state, so this has to be reachable from outside the package.
+// Before, a caller built an unsigned OWID directly and signed it afterwards,
+// which left a window in which one existed with no signature and nothing to
+// say it was not finished.
+func NewCreator(domain string, crypto *Crypto) (*Creator, error) {
+	if crypto == nil {
+		return nil, fmt.Errorf("a crypto instance is required to sign with")
+	}
+	privateKey, err := crypto.privateKeyToPemString()
+	if err != nil {
+		return nil, err
+	}
+	publicKey, err := crypto.publicKeyToPemString()
+	if err != nil {
+		return nil, err
+	}
+	return newCreator(domain, privateKey, publicKey, "", "")
 }
 
 // newCreator returns a creator for the domain given. Every creator is built

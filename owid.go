@@ -24,14 +24,19 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
+	"unicode"
 )
 
 const (
-	owidEmpty    byte = 0
-	owidVersion1 byte = 1
-	owidVersion2 byte = 2
-	owidVersion3 byte = 3
+	owidEmpty byte = 0
+	// owidVersionEmpty is the marker written to stand for an absent node
+	// inside a stream. It is not an OWID.
+	owidVersionEmpty byte = 0
+	owidVersion1     byte = 1
+	owidVersion2     byte = 2
+	owidVersion3     byte = 3
 )
 
 var client *http.Client
@@ -41,40 +46,77 @@ func init() {
 }
 
 // OWID structure which can be used as a node in a tree.
+// OWID is a claim about who created some data and when, and it is only worth
+// anything because it is signed. A caller therefore cannot build one: the
+// fields are unexported, so an instance arrives either from parsing bytes that
+// were already a complete OWID, or from a Creator that signs one into
+// existence. There is deliberately no way to assemble a half made one, because
+// an unsigned OWID is indistinguishable from a signed one to the code
+// downstream of it, and the difference only surfaces later when a verification
+// fails somewhere nobody is watching.
+//
+// The accessors return copies of the byte slices for the same reason. A parsed
+// OWID's signature covers its fields as they arrived, so a caller writing into
+// a returned slice would hold something whose signature no longer describes it.
 type OWID struct {
-	Version   byte      `json:"version"`   // The byte version of the OWID. Version 1 only.
-	Domain    string    `json:"domain"`    // Domain associated with the creator.
-	Date      time.Time `json:"date"`      // The date and time to the nearest minute in UTC of the creation.
-	Payload   []byte    `json:"payload"`   // Array of bytes that form the identifier.
-	Signature []byte    `json:"signature"` // Signature for this OWID and it's ancestor from the creator.
+	version   byte      // Versions 1, 2 and 3 are read. Version 3 is written.
+	domain    string    // Domain associated with the creator.
+	date      time.Time // The date and time to the nearest minute in UTC of the creation.
+	payload   []byte    // Array of bytes that form the identifier.
+	signature []byte    // Signature for this OWID and it's ancestor from the creator.
+}
+
+// Version returns the byte version of the OWID.
+func (o *OWID) Version() byte { return o.version }
+
+// Domain returns the domain associated with the creator.
+func (o *OWID) Domain() string { return o.domain }
+
+// Date returns the creation date to the nearest minute in UTC.
+func (o *OWID) Date() time.Time { return o.date }
+
+// Payload returns a copy of the bytes that form the identifier.
+func (o *OWID) Payload() []byte {
+	c := make([]byte, len(o.payload))
+	copy(c, o.payload)
+	return c
+}
+
+// Signature returns a copy of the signature for this OWID.
+func (o *OWID) Signature() []byte {
+	c := make([]byte, len(o.signature))
+	copy(c, o.signature)
+	return c
 }
 
 // Age returns the number of complete minutes that have elapsed since the OWID
 // was created. The granularity is to the nearest minute.
 func (o *OWID) Age() int {
-	return int(time.Since(o.Date).Minutes())
+	return int(time.Since(o.date).Minutes())
 }
 
 // PayloadAsString converts the payload to a string.
 func (o *OWID) PayloadAsString() string {
-	return string(o.Payload)
+	return string(o.payload)
 }
 
 // PayloadAsPrintable returns a string representation of the payload.
 func (o *OWID) PayloadAsPrintable() string {
-	return fmt.Sprintf("%x ", o.Payload)
+	return fmt.Sprintf("%x ", o.payload)
 }
 
 // PayloadAsBase64 returns the payload as a URL encoded base 64 string.
 func (o *OWID) PayloadAsBase64() string {
-	return base64.StdEncoding.EncodeToString(o.Payload)
+	return base64.StdEncoding.EncodeToString(o.payload)
 }
 
-// NewOwid creates a new unsigned instance of the OWID structure. A domain
+// newOwid builds an unsigned instance for the creator to sign. Not
+// exported: an unsigned OWID must never reach calling code, because it is
+// indistinguishable from a signed one to whatever handles it next. A domain
 // longer than the published maximum is refused here so the caller is told
 // when they supply the domain, which is before anything is signed, rather
 // than when the OWID is later serialised.
-func NewOwid(
+func newOwid(
 	domain string,
 	date time.Time,
 	payload []byte) (*OWID, error) {
@@ -83,20 +125,21 @@ func NewOwid(
 		return nil, err
 	}
 	var o OWID
-	o.Version = owidVersion3
-	o.Domain = domain
-	o.Date = date
-	o.Payload = payload
+	o.version = owidVersion3
+	o.domain = domain
+	o.date = date
+	o.payload = payload
 	return &o, nil
 }
 
-// Sign this OWID and and any other OWIDs using the Crypto instance provided.
-func (o *OWID) Sign(c *Crypto, others []*OWID) error {
+// Sign this OWID and any other OWIDs using the Crypto instance provided.
+// sign is not exported, for the reason given on Creator.signOwid.
+func (o *OWID) sign(c *Crypto, others []*OWID) error {
 	b, err := o.dataForCrypto(others)
 	if err != nil {
 		return err
 	}
-	o.Signature, err = c.SignByteArray(b)
+	o.signature, err = c.SignByteArray(b)
 	if err != nil {
 		return err
 	}
@@ -109,7 +152,60 @@ func (o *OWID) VerifyWithCrypto(c *Crypto, others []*OWID) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return c.VerifyByteArray(b, o.Signature)
+	return c.VerifyByteArray(b, o.signature)
+}
+
+// SignatureStatusWithPublicKey says whether the signature is genuine, or why
+// that could not be decided.
+//
+// Only two of the answers are about the signature. The rest say the question
+// could not be answered, which is a different thing and must never be reported
+// as a forgery. A key that cannot be decoded leaves the signature unjudged,
+// and a caller acting on "invalid" would reject good identifiers during an
+// outage. On 30 August 2026 the key end points served PEM a strict parser
+// rejects and every offline verification failed, with the keys and the
+// identifiers both fine.
+func (o *OWID) SignatureStatusWithPublicKey(
+	public string,
+	others ...*OWID) SignatureStatus {
+	if public == "" {
+		return KeyUnavailable
+	}
+	if len(o.signature) != signatureLength {
+		return InvalidSignatureLength
+	}
+	c, err := NewCryptoVerifyOnly(public)
+	if err != nil {
+		// The key is the thing at fault, not the identifier.
+		return InvalidKey
+	}
+	return o.SignatureStatusWithCrypto(c, others...)
+}
+
+// SignatureStatusWithCrypto is SignatureStatusWithPublicKey for a key that has
+// already been read.
+func (o *OWID) SignatureStatusWithCrypto(
+	c *Crypto,
+	others ...*OWID) SignatureStatus {
+	if c == nil {
+		return KeyUnavailable
+	}
+	if len(o.signature) != signatureLength {
+		return InvalidSignatureLength
+	}
+	b, err := o.dataForCrypto(others)
+	if err != nil {
+		// The identifier is fine and the question could not be put.
+		return VerificationError
+	}
+	matched, err := c.VerifyByteArray(b, o.signature)
+	if err != nil {
+		return VerificationError
+	}
+	if matched {
+		return SignatureValid
+	}
+	return SignatureInvalid
 }
 
 // VerifyWithPublicKey this OWID and it's ancestors using the public key in PEM
@@ -129,16 +225,16 @@ func (o *OWID) VerifyWithPublicKey(
 func (o *OWID) Verify(scheme string) (bool, error) {
 	u := url.URL{
 		Scheme: scheme,
-		Host:   o.Domain,
-		Path:   fmt.Sprintf("/owid/api/v%d/public-key", o.Version)}
+		Host:   o.domain,
+		Path:   fmt.Sprintf("/owid/api/v%d/public-key", o.version)}
 	q := u.Query()
 	q.Set("format", "pkcs")
 	// Send the OWID's own date so the creator can return the signing key that
 	// was current when this OWID was created, letting OWIDs signed before a
 	// key rotation still verify. Creators that do not support dated lookup
 	// ignore the parameter and return the current key.
-	if !o.Date.Before(ioDateBase) {
-		minutes := uint32(o.Date.Sub(ioDateBase).Minutes())
+	if !o.date.Before(ioDateBase) {
+		minutes := uint32(o.date.Sub(ioDateBase).Minutes())
 		q.Set("date", strconv.FormatUint(uint64(minutes), 10))
 	}
 	u.RawQuery = q.Encode()
@@ -150,7 +246,7 @@ func (o *OWID) Verify(scheme string) (bool, error) {
 	if r.StatusCode != http.StatusOK {
 		return false, fmt.Errorf(
 			"Domain '%s' return code '%d'",
-			o.Domain,
+			o.domain,
 			r.StatusCode)
 	}
 	v, err := ioutil.ReadAll(r.Body)
@@ -166,7 +262,7 @@ func (o *OWID) ToBuffer(f *bytes.Buffer) error {
 	if err != nil {
 		return err
 	}
-	err = writeSignature(f, o.Signature)
+	err = writeSignature(f, o.signature)
 	if err != nil {
 		return err
 	}
@@ -225,59 +321,77 @@ func (o *OWID) AsString() string {
 
 // FromBuffer creates a single OWID from the buffer.
 func FromBuffer(b *bytes.Buffer) (*OWID, error) {
-	var o OWID
-	var err error
-	o.Version, err = readByte(b)
+	if b == nil {
+		return nil, newParseError(MissingInput, "")
+	}
+	o, consumed, err := parseFrom(b.Bytes(), false)
+	// The buffer advances by whatever the frame occupied, whatever the
+	// outcome: the envelope when one was read, the single byte of an absent
+	// node, and nothing at all when the frame was malformed. An absent node
+	// is a legitimate frame rather than a fault, so a caller walking a run
+	// must be able to step over it, and a caller that stops at a malformed
+	// frame finds the buffer still at its start.
+	if consumed > 0 {
+		b.Next(consumed)
+	}
 	if err != nil {
 		return nil, err
-	}
-	switch o.Version {
-	case owidEmpty:
-		break
-	case owidVersion1, owidVersion2, owidVersion3:
-		err = fromBuffer(b, &o)
-		if err != nil {
-			return nil, err
-		}
-	default:
-		return nil, fmt.Errorf("version '%d' not supported", o.Version)
-	}
-	return &o, nil
-}
-
-// FromByteArray creates a single OWID from the byte array.
-func FromByteArray(b []byte) (*OWID, error) {
-	buffer := bytes.NewBuffer(b)
-	o, err := FromBuffer(buffer)
-	if err != nil {
-		return nil, err
-	}
-	if buffer.Len() != 0 {
-		return nil, fmt.Errorf(
-			"OWID contains '%d' bytes after the envelope",
-			buffer.Len())
 	}
 	return o, nil
 }
 
+// FromByteArray creates a single OWID from the byte array.
+func FromByteArray(b []byte) (*OWID, error) {
+	return parseExact(b)
+}
+
 // FromBase64 creates a single OWID from the base 64 string.
 func FromBase64(value string) (*OWID, error) {
-	b, err := base64.StdEncoding.DecodeString(value)
+	if value == "" {
+		return nil, newParseError(MissingInput, "")
+	}
+	b, err := decodeBase64(value)
 	if err != nil {
-		return nil, err
+		// Not valid base 64 is one of the expected outcomes on a public
+		// surface, so it is reported with the same vocabulary as everything
+		// else rather than as an encoding package error the caller would have
+		// to recognise separately.
+		return nil, newParseError(InvalidBase64, "")
 	}
 	return FromByteArray(b)
+}
+
+// decodeBase64 accepts the standard alphabet with or without its trailing
+// padding, because both are ordinary ways to carry an encoded OWID and the
+// other implementations accept both. Whitespace does not count towards the
+// group of four. A length one over a group encodes no whole byte and cannot
+// have come from an encoder, so no padding can mend it and the standard
+// decoder is left to refuse it.
+func decodeBase64(value string) ([]byte, error) {
+	significant := 0
+	for _, r := range value {
+		if !unicode.IsSpace(r) {
+			significant++
+		}
+	}
+	if over := significant % 4; over != 0 && over != 1 {
+		value += strings.Repeat("=", 4-over)
+	}
+	return base64.StdEncoding.DecodeString(value)
 }
 
 // FromForm extracts the base64 string from the form and returns the OWID.
 // If the key is missing or the string is not valid then an error is returned.
 func FromForm(q *url.Values, n string) (*OWID, error) {
-	if q.Get(n) == "" {
-		return nil, fmt.Errorf("key '%s' missing from form", n)
+	if q == nil || q.Get(n) == "" {
+		return nil, newParseError(MissingInput, "key '%s' missing from form", n)
 	}
 	o, err := FromBase64(q.Get(n))
 	if err != nil {
-		return nil, fmt.Errorf("key '%s' %s", n, err.Error())
+		// Wrapped, not formatted. Formatting turned the reason into text and
+		// a caller could no longer reach it with errors.As, so this surface
+		// alone reported no status.
+		return nil, fmt.Errorf("key '%s': %w", n, err)
 	}
 	return o, nil
 }
@@ -323,28 +437,28 @@ func (o *OWID) dataForCrypto(others []*OWID) ([]byte, error) {
 // payload instead of repeatedly growing and copying its backing array.
 func (o *OWID) byteLength(includeSignature bool) (int, error) {
 	var dateLength int
-	switch o.Version {
+	switch o.version {
 	case owidVersion1:
 		dateLength = 2
 	case owidVersion2, owidVersion3:
 		dateLength = 4
 	default:
-		return 0, fmt.Errorf("version '%d' not supported", o.Version)
+		return 0, fmt.Errorf("version '%d' not supported", o.version)
 	}
-	if uint64(len(o.Payload)) > uint64(^uint32(0)) {
+	if uint64(len(o.payload)) > uint64(^uint32(0)) {
 		return 0, fmt.Errorf(
 			"payload length '%d' exceeds the unsigned 32 bit limit",
-			len(o.Payload))
+			len(o.payload))
 	}
-	if includeSignature && len(o.Signature) != signatureLength {
+	if includeSignature && len(o.signature) != signatureLength {
 		return 0, fmt.Errorf(
 			"provided signature length '%d' not compaitable with '%d' "+
 				"OWID signature length",
-			len(o.Signature),
+			len(o.signature),
 			signatureLength)
 	}
 	length := 0
-	parts := []int{1, len(o.Domain), 1, dateLength, 4, len(o.Payload)}
+	parts := []int{1, len(o.domain), 1, dateLength, 4, len(o.payload)}
 	if includeSignature {
 		parts = append(parts, signatureLength)
 	}
@@ -366,41 +480,20 @@ func addByteLength(left int, right int) (int, error) {
 	return left + right, nil
 }
 
-func fromBuffer(b *bytes.Buffer, o *OWID) error {
-	var err error
-	o.Domain, err = readString(b)
-	if err != nil {
-		return err
-	}
-	o.Date, err = readDate(b, o.Version)
-	if err != nil {
-		return err
-	}
-	o.Payload, err = readPayload(b)
-	if err != nil {
-		return err
-	}
-	o.Signature, err = readSignature(b)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
 func (o *OWID) toBufferNoSignature(b *bytes.Buffer) error {
-	err := writeByte(b, o.Version)
+	err := writeByte(b, o.version)
 	if err != nil {
 		return err
 	}
-	err = writeString(b, o.Domain)
+	err = writeString(b, o.domain)
 	if err != nil {
 		return err
 	}
-	err = writeDate(b, o.Date, o.Version)
+	err = writeDate(b, o.date, o.version)
 	if err != nil {
 		return err
 	}
-	err = writeByteArray(b, o.Payload)
+	err = writeByteArray(b, o.payload)
 	if err != nil {
 		return err
 	}

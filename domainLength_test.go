@@ -96,13 +96,13 @@ func TestDomainLengthMaximumParses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a domain of the maximum length should parse: %v", err)
 	}
-	if o.Domain != d {
-		t.Errorf("expected domain '%s', found '%s'", d, o.Domain)
+	if o.domain != d {
+		t.Errorf("expected domain '%s', found '%s'", d, o.domain)
 	}
-	if bytes.Equal(o.Payload, domainLengthPayload) == false {
+	if bytes.Equal(o.payload, domainLengthPayload) == false {
 		t.Error("payload does not match the input")
 	}
-	if bytes.Equal(o.Signature, domainLengthSignature) == false {
+	if bytes.Equal(o.signature, domainLengthSignature) == false {
 		t.Error("signature does not match the input")
 	}
 }
@@ -150,12 +150,18 @@ func TestDomainLengthNoTerminatorRefusedWithoutReading(t *testing.T) {
 	if err == nil {
 		t.Fatal("a domain with no terminator should be refused")
 	}
+	// Nothing is consumed when the envelope is refused. A framed reader that
+	// half consumed a bad envelope would leave the stream at a position its
+	// caller cannot reason about, so the buffer is left as it was and the
+	// caller decides what to do with it. What this test is really about is
+	// that the refusal costs a bounded amount of work rather than a scan of
+	// the whole declared domain, which the allocation check below measures.
 	remaining := b.Len()
-	if remaining != consumed-1 {
+	if remaining != consumed {
 		t.Errorf(
-			"expected '%d' bytes left unread after the version byte, "+
+			"expected the buffer to be left untouched at '%d' bytes, "+
 				"found '%d'",
-			consumed-1,
+			consumed,
 			remaining)
 	}
 	allocated := after.TotalAlloc - before.TotalAlloc
@@ -186,8 +192,8 @@ func TestDomainLengthLibraryOutputParses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n.Domain != o.Domain {
-		t.Errorf("expected domain '%s', found '%s'", o.Domain, n.Domain)
+	if n.domain != o.domain {
+		t.Errorf("expected domain '%s', found '%s'", o.domain, n.domain)
 	}
 	if o.compare(n) == false {
 		t.Error("library output did not round trip")
@@ -244,8 +250,8 @@ func TestDomainLengthWriteMaximumRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n.Domain != d {
-		t.Errorf("expected domain '%s', found '%s'", d, n.Domain)
+	if n.domain != d {
+		t.Errorf("expected domain '%s', found '%s'", d, n.domain)
 	}
 	v, err := c.Verify(n)
 	if err != nil {
@@ -260,11 +266,11 @@ func TestDomainLengthWriteMaximumRoundTrips(t *testing.T) {
 // as it did before the bound, being written as a bare terminator and read
 // back as an empty string.
 func TestDomainLengthEmptyDomainUnchanged(t *testing.T) {
-	o, err := NewOwid("", testDate, []byte(testPayload))
+	o, err := newOwid("", testDate, []byte(testPayload))
 	if err != nil {
 		t.Fatalf("an empty domain should be accepted: %v", err)
 	}
-	o.Signature = domainLengthSignature
+	o.signature = domainLengthSignature
 	a, err := o.AsByteArray()
 	if err != nil {
 		t.Fatal(err)
@@ -273,15 +279,15 @@ func TestDomainLengthEmptyDomainUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n.Domain != "" {
-		t.Errorf("expected an empty domain, found '%s'", n.Domain)
+	if n.domain != "" {
+		t.Errorf("expected an empty domain, found '%s'", n.domain)
 	}
 }
 
 // TestDomainLengthNewOwidOverMaximumRefused proves that the OWID factory
 // refuses a domain one character over the maximum.
 func TestDomainLengthNewOwidOverMaximumRefused(t *testing.T) {
-	_, err := NewOwid(
+	_, err := newOwid(
 		domainLengthName(maximumDomainLength+1),
 		testDate,
 		[]byte(testPayload))
@@ -317,11 +323,11 @@ func TestDomainLengthCreatorJSONOverMaximumRefused(t *testing.T) {
 // is still refused when the OWID is serialised.
 func TestDomainLengthSerialisationOverMaximumRefused(t *testing.T) {
 	var o OWID
-	o.Version = owidVersion3
-	o.Domain = domainLengthName(maximumDomainLength + 1)
-	o.Date = testDate
-	o.Payload = domainLengthPayload
-	o.Signature = domainLengthSignature
+	o.version = owidVersion3
+	o.domain = domainLengthName(maximumDomainLength + 1)
+	o.date = testDate
+	o.payload = domainLengthPayload
+	o.signature = domainLengthSignature
 	_, err := o.AsByteArray()
 	requireDomainLengthError(t, err)
 }

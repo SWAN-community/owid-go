@@ -23,28 +23,34 @@ import (
 	"testing"
 )
 
-// TestCreatorCreateOWID verifies that a new unsigned OWID contains the
+// TestCreatorCreateOWID verifies that a created OWID is signed and contains the
 // payload, the current version and the domain of the creator.
 func TestCreatorCreateOWID(t *testing.T) {
 	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := c.CreateOWID([]byte(testPayload))
+	o, err := c.Create([]byte(testPayload))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if o.Version != owidVersion3 {
-		t.Errorf("expected version '%d', found '%d'", owidVersion3, o.Version)
+	if o.version != owidVersion3 {
+		t.Errorf("expected version '%d', found '%d'", owidVersion3, o.version)
 	}
-	if o.Domain != c.Domain() {
-		t.Errorf("expected domain '%s', found '%s'", c.Domain(), o.Domain)
+	if o.domain != c.Domain() {
+		t.Errorf("expected domain '%s', found '%s'", c.Domain(), o.domain)
 	}
-	if bytes.Equal(o.Payload, []byte(testPayload)) == false {
+	if bytes.Equal(o.payload, []byte(testPayload)) == false {
 		t.Error("payload does not match the input")
 	}
-	if len(o.Signature) != 0 {
-		t.Error("new OWID should not be signed")
+	// Creation signs. There is no longer a moment at which an unsigned OWID
+	// exists for a caller to hold, which is the point of routing creation
+	// through the creator rather than exposing an unsigned builder.
+	if len(o.signature) != signatureLength {
+		t.Errorf(
+			"a created OWID should carry a '%d' byte signature, found '%d'",
+			signatureLength,
+			len(o.signature))
 	}
 }
 
@@ -55,19 +61,19 @@ func TestCreatorSign(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := c.CreateOWID([]byte(testPayload))
+	o, err := c.Create([]byte(testPayload))
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = c.Sign(o)
+	err = c.signOwid(o)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(o.Signature) != signatureLength {
+	if len(o.signature) != signatureLength {
 		t.Errorf(
 			"expected signature length '%d', found '%d'",
 			signatureLength,
-			len(o.Signature))
+			len(o.signature))
 	}
 }
 
@@ -82,8 +88,8 @@ func TestCreatorCreateOWIDandSign(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if o.Domain != c.Domain() {
-		t.Errorf("expected domain '%s', found '%s'", c.Domain(), o.Domain)
+	if o.domain != c.Domain() {
+		t.Errorf("expected domain '%s', found '%s'", c.Domain(), o.domain)
 	}
 	v, err := c.Verify(o)
 	if err != nil {
@@ -165,8 +171,8 @@ func TestCreatorEmptyPayload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(n.Payload) != 0 {
-		t.Errorf("expected empty payload, found '%d' bytes", len(n.Payload))
+	if len(n.payload) != 0 {
+		t.Errorf("expected empty payload, found '%d' bytes", len(n.payload))
 	}
 	v, err = n.VerifyWithPublicKey(c.publicKey)
 	if err != nil {
@@ -209,7 +215,7 @@ func TestCreatorLargePayload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes.Equal(n.Payload, p) == false {
+	if bytes.Equal(n.payload, p) == false {
 		t.Error("decoded payload does not match the input")
 	}
 	v, err = n.VerifyWithPublicKey(c.publicKey)
