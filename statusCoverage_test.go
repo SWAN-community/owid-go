@@ -82,12 +82,13 @@ func TestEveryParseFailureIsReported(t *testing.T) {
 		assertParse(t, bad, UnsupportedVersion)
 	})
 
-	t.Run("the absent marker is not an OWID", func(t *testing.T) {
+	t.Run("the absent marker is named for what it is", func(t *testing.T) {
 		// Version 0 stands for an absent node inside a stream. It carries no
-		// domain, date, payload or signature, so it can never verify, and
-		// letting one through would be the single case of an instance with no
-		// signature reaching a caller.
-		assertParse(t, []byte{0}, UnsupportedVersion)
+		// domain, date, payload or signature, so it can never verify and no
+		// value is handed back. It is named for what it is rather than called
+		// an unsupported version, because version 0 is supported and
+		// meaningful, it simply is not an OWID.
+		assertParse(t, []byte{0}, AbsentNode)
 	})
 
 	t.Run("UnexpectedEnd", func(t *testing.T) {
@@ -213,7 +214,7 @@ func TestEveryStatusIsCoveredOrNamedUnreachable(t *testing.T) {
 	all := []ParseStatus{
 		Parsed, MissingInput, InvalidBase64, UnsupportedVersion, UnexpectedEnd,
 		InvalidDomainEncoding, ByteCountMismatch,
-		ImplementationCapacityExceeded, MalformedEnvelope,
+		ImplementationCapacityExceeded, AbsentNode, MalformedEnvelope,
 	}
 	for _, s := range all {
 		if reachedParse[s] {

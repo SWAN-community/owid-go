@@ -158,3 +158,71 @@ func TestFramedAndWholeBufferDifferOnlyOnWhatFollows(t *testing.T) {
 			buffer.Len())
 	}
 }
+
+// An absent node is stepped over, which is the distinction the marker exists
+// for: a caller walking a run of frames can tell one from a malformed frame
+// and carry on.
+func TestAnAbsentNodeIsSteppedOver(t *testing.T) {
+	c := contractCreator(t)
+	o, err := c.Create([]byte("after the gap"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := o.AsByteArray()
+	if err != nil {
+		t.Fatal(err)
+	}
+	buffer := bytes.NewBuffer(append([]byte{0}, envelope...))
+
+	if _, err := FromBuffer(buffer); err == nil {
+		t.Fatal("a marker is not an OWID")
+	} else {
+		var pe *ParseError
+		if !errors.As(err, &pe) || pe.Status != AbsentNode {
+			t.Fatalf("expected AbsentNode, got %v", err)
+		}
+	}
+	if buffer.Len() != len(envelope) {
+		t.Errorf(
+			"the one marker byte should have been stepped over, %d bytes left "+
+				"of %d", buffer.Len(), len(envelope))
+	}
+
+	next, err := FromBuffer(buffer)
+	if err != nil {
+		t.Fatalf("the envelope after the gap should read: %v", err)
+	}
+	if string(next.Payload()) != "after the gap" {
+		t.Errorf("expected the envelope after the gap, got %q", next.Payload())
+	}
+}
+
+// A frame whose declared payload runs past the bytes supplied is data
+// stopping early, not a declaration disagreeing with data that is all
+// present. A caller reading from a source still arriving needs to know
+// whether waiting would help.
+func TestAShortFrameEndsEarlyRatherThanDisagreeing(t *testing.T) {
+	c := contractCreator(t)
+	o, err := c.Create([]byte("payload"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	whole, err := o.AsByteArray()
+	if err != nil {
+		t.Fatal(err)
+	}
+	short := whole[:len(whole)-1]
+
+	_, framed := FromBuffer(bytes.NewBuffer(short))
+	var pe *ParseError
+	if !errors.As(framed, &pe) || pe.Status != UnexpectedEnd {
+		t.Errorf("framed should report UnexpectedEnd, got %v", framed)
+	}
+
+	// The same bytes as a whole buffer are a disagreement, because there
+	// every byte that will ever arrive is already here.
+	_, whole2 := FromByteArray(short)
+	if !errors.As(whole2, &pe) || pe.Status != ByteCountMismatch {
+		t.Errorf("whole buffer should report ByteCountMismatch, got %v", whole2)
+	}
+}

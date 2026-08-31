@@ -28,10 +28,13 @@ import (
 )
 
 const (
-	owidEmpty    byte = 0
-	owidVersion1 byte = 1
-	owidVersion2 byte = 2
-	owidVersion3 byte = 3
+	owidEmpty byte = 0
+	// owidVersionEmpty is the marker written to stand for an absent node
+	// inside a stream. It is not an OWID.
+	owidVersionEmpty byte = 0
+	owidVersion1     byte = 1
+	owidVersion2     byte = 2
+	owidVersion3     byte = 3
 )
 
 var client *http.Client
@@ -320,12 +323,18 @@ func FromBuffer(b *bytes.Buffer) (*OWID, error) {
 		return nil, newParseError(MissingInput, "")
 	}
 	o, consumed, err := parseFrom(b.Bytes(), false)
+	// The buffer advances by whatever the frame occupied, whatever the
+	// outcome: the envelope when one was read, the single byte of an absent
+	// node, and nothing at all when the frame was malformed. An absent node
+	// is a legitimate frame rather than a fault, so a caller walking a run
+	// must be able to step over it, and a caller that stops at a malformed
+	// frame finds the buffer still at its start.
+	if consumed > 0 {
+		b.Next(consumed)
+	}
 	if err != nil {
 		return nil, err
 	}
-	// Take only what the envelope occupied. What follows may be the next one,
-	// so it is left where it is for the caller to read next.
-	b.Next(consumed)
 	return o, nil
 }
 

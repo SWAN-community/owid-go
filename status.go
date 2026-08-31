@@ -69,6 +69,17 @@ const (
 	// same bytes may be readable elsewhere.
 	ImplementationCapacityExceeded
 
+	// AbsentNode is the version 0 marker, which stands for an absent node
+	// inside a stream. It is not an OWID and never produces one, because it
+	// carries no signature and so can never verify. A framed read reports it
+	// and moves past its one byte, so a caller walking a run of frames can
+	// tell an absent node from a malformed one, which is the distinction the
+	// marker exists for. The whole buffer read reports it too, because the
+	// byte means the same thing wherever it appears; calling it an
+	// unsupported version was inaccurate, since version 0 is supported and
+	// meaningful.
+	AbsentNode
+
 	// MalformedEnvelope is a fallback for the genuinely unclassified, not a
 	// substitute for naming a failure that is already understood.
 	MalformedEnvelope
@@ -93,6 +104,8 @@ func (s ParseStatus) String() string {
 		return "ByteCountMismatch"
 	case ImplementationCapacityExceeded:
 		return "ImplementationCapacityExceeded"
+	case AbsentNode:
+		return "AbsentNode"
 	case MalformedEnvelope:
 		return "MalformedEnvelope"
 	default:

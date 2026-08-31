@@ -58,6 +58,18 @@ func parseFrom(b []byte, exact bool) (*OWID, int, error) {
 	version := b[0]
 	switch version {
 	case owidVersion1, owidVersion2, owidVersion3:
+	case owidVersionEmpty:
+		// The marker stands for an absent node inside a stream. It is not an
+		// OWID and no value is handed back, because it carries no signature
+		// and can never verify. A framed read still moves past its one byte,
+		// so a caller walking a run of frames can skip an absent node
+		// deliberately rather than being unable to tell one from a malformed
+		// frame.
+		consumed := 0
+		if !exact {
+			consumed = 1
+		}
+		return nil, consumed, newParseError(AbsentNode, "")
 	default:
 		return nil, 0, newParseError(
 			UnsupportedVersion, "version '%d'", version)
@@ -146,8 +158,12 @@ func parseFrom(b []byte, exact bool) (*OWID, int, error) {
 				"declared '%d' with '%d' present", declared, present)
 		}
 	} else if present < int64(declared) {
+		// A frame running past the bytes supplied is data stopping early, not
+		// a declaration disagreeing with data that is all present. A caller
+		// reading from a source still arriving needs to know whether waiting
+		// for more bytes would help, and those are different answers.
 		return nil, 0, newParseError(
-			ByteCountMismatch,
+			UnexpectedEnd,
 			"declared '%d' with '%d' present", declared, present)
 	}
 
