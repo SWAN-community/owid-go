@@ -35,14 +35,23 @@ import (
 // FromBuffer, which must not require the end of the stream because what
 // follows may be the next envelope rather than rubbish.
 func parseExact(b []byte) (*OWID, error) {
+	o, _, err := parseFrom(b, true)
+	return o, err
+}
+
+// parseFrom reads one envelope. When exact is false the envelope may be
+// followed by more data, which is left for the caller, because in a stream
+// what follows may be the next envelope rather than rubbish. It returns the
+// number of bytes the envelope occupied.
+func parseFrom(b []byte, exact bool) (*OWID, int, error) {
 	if b == nil {
-		return nil, newParseError(MissingInput, "")
+		return nil, 0, newParseError(MissingInput, "")
 	}
 	total := len(b)
 	if total < 1 {
 		// Nothing was supplied, which is not the same as data that stopped
 		// part way through a field.
-		return nil, newParseError(MissingInput, "")
+		return nil, 0, newParseError(MissingInput, "")
 	}
 
 	at := 1
@@ -50,7 +59,7 @@ func parseExact(b []byte) (*OWID, error) {
 	switch version {
 	case owidVersion1, owidVersion2, owidVersion3:
 	default:
-		return nil, newParseError(
+		return nil, 0, newParseError(
 			UnsupportedVersion, "version '%d'", version)
 	}
 
@@ -75,9 +84,9 @@ func parseExact(b []byte) (*OWID, error) {
 		// be valid rather than data that merely stopped, so the two are
 		// reported differently.
 		if at >= total && at-start <= maximumDomainLength {
-			return nil, newParseError(UnexpectedEnd, "domain not complete")
+			return nil, 0, newParseError(UnexpectedEnd, "domain not complete")
 		}
-		return nil, newParseError(
+		return nil, 0, newParseError(
 			InvalidDomainEncoding,
 			"longer than the '%d' character maximum, or not terminated",
 			maximumDomainLength)
@@ -89,14 +98,17 @@ func parseExact(b []byte) (*OWID, error) {
 	var date time.Time
 	if version == owidVersion1 {
 		if total-at < 2 {
-			return nil, newParseError(UnexpectedEnd, "date not complete")
+			return nil, 0, newParseError(UnexpectedEnd, "date not complete")
 		}
-		hours := int(b[at])<<8 | int(b[at+1])
+		// Version 1 counts days, not hours. The other ports differ here and
+		// each one matches its own history; this reader must not quietly
+		// change what a version 1 OWID means in Go.
+		days := int(b[at])<<8 | int(b[at+1])
 		at += 2
-		date = ioDateBase.Add(time.Duration(hours) * time.Hour)
+		date = ioDateBase.Add(time.Duration(days) * time.Hour * 24)
 	} else {
 		if total-at < 4 {
-			return nil, newParseError(UnexpectedEnd, "date not complete")
+			return nil, 0, newParseError(UnexpectedEnd, "date not complete")
 		}
 		minutes := binary.LittleEndian.Uint32(b[at : at+4])
 		at += 4
@@ -104,7 +116,7 @@ func parseExact(b []byte) (*OWID, error) {
 	}
 
 	if total-at < 4 {
-		return nil, newParseError(
+		return nil, 0, newParseError(
 			UnexpectedEnd, "payload length not complete")
 	}
 	declared := binary.LittleEndian.Uint32(b[at : at+4])
@@ -120,9 +132,21 @@ func parseExact(b []byte) (*OWID, error) {
 	// What a reader can say for certain is that the declared payload cannot
 	// leave exactly the signature the version requires, and that is true
 	// whichever way the bytes fall short.
+	//
+	// The two contracts differ here, and only here. An exact buffer knows the
+	// envelope boundary, so the declaration must leave exactly the signature
+	// and no more. A framed reader does not: what follows may be the next
+	// envelope, so it needs the declaration and the signature to be present
+	// and says nothing about the rest.
 	present := int64(total-at) - int64(signatureLength)
-	if present != int64(declared) {
-		return nil, newParseError(
+	if exact {
+		if present != int64(declared) {
+			return nil, 0, newParseError(
+				ByteCountMismatch,
+				"declared '%d' with '%d' present", declared, present)
+		}
+	} else if present < int64(declared) {
+		return nil, 0, newParseError(
 			ByteCountMismatch,
 			"declared '%d' with '%d' present", declared, present)
 	}
@@ -131,7 +155,7 @@ func parseExact(b []byte) (*OWID, error) {
 	// is a separate question, and a different answer, because the same
 	// envelope may be readable elsewhere.
 	if uint64(declared) > uint64(math.MaxInt) {
-		return nil, newParseError(
+		return nil, 0, newParseError(
 			ImplementationCapacityExceeded, "declared '%d'", declared)
 	}
 
@@ -143,11 +167,11 @@ func parseExact(b []byte) (*OWID, error) {
 	copy(signature, b[at:at+signatureLength])
 	at += signatureLength
 
-	if at != total {
+	if exact && at != total {
 		// Unreachable while the count check above holds, and kept so that a
 		// future change to that arithmetic cannot silently start accepting
 		// trailing bytes.
-		return nil, newParseError(MalformedEnvelope, "bytes after the envelope")
+		return nil, 0, newParseError(MalformedEnvelope, "bytes after the envelope")
 	}
 
 	return &OWID{
@@ -156,5 +180,5 @@ func parseExact(b []byte) (*OWID, error) {
 		date:      date,
 		payload:   payload,
 		signature: signature,
-	}, nil
+	}, at, nil
 }

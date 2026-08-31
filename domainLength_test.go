@@ -150,12 +150,18 @@ func TestDomainLengthNoTerminatorRefusedWithoutReading(t *testing.T) {
 	if err == nil {
 		t.Fatal("a domain with no terminator should be refused")
 	}
+	// Nothing is consumed when the envelope is refused. A framed reader that
+	// half consumed a bad envelope would leave the stream at a position its
+	// caller cannot reason about, so the buffer is left as it was and the
+	// caller decides what to do with it. What this test is really about is
+	// that the refusal costs a bounded amount of work rather than a scan of
+	// the whole declared domain, which the allocation check below measures.
 	remaining := b.Len()
-	if remaining != consumed-1 {
+	if remaining != consumed {
 		t.Errorf(
-			"expected '%d' bytes left unread after the version byte, "+
+			"expected the buffer to be left untouched at '%d' bytes, "+
 				"found '%d'",
-			consumed-1,
+			consumed,
 			remaining)
 	}
 	allocated := after.TotalAlloc - before.TotalAlloc

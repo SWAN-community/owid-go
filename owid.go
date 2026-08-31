@@ -316,24 +316,17 @@ func (o *OWID) AsString() string {
 
 // FromBuffer creates a single OWID from the buffer.
 func FromBuffer(b *bytes.Buffer) (*OWID, error) {
-	var o OWID
-	var err error
-	o.version, err = readByte(b)
+	if b == nil {
+		return nil, newParseError(MissingInput, "")
+	}
+	o, consumed, err := parseFrom(b.Bytes(), false)
 	if err != nil {
 		return nil, err
 	}
-	switch o.version {
-	case owidEmpty:
-		break
-	case owidVersion1, owidVersion2, owidVersion3:
-		err = fromBuffer(b, &o)
-		if err != nil {
-			return nil, err
-		}
-	default:
-		return nil, fmt.Errorf("version '%d' not supported", o.version)
-	}
-	return &o, nil
+	// Take only what the envelope occupied. What follows may be the next one,
+	// so it is left where it is for the caller to read next.
+	b.Next(consumed)
+	return o, nil
 }
 
 // FromByteArray creates a single OWID from the byte array.
@@ -360,12 +353,15 @@ func FromBase64(value string) (*OWID, error) {
 // FromForm extracts the base64 string from the form and returns the OWID.
 // If the key is missing or the string is not valid then an error is returned.
 func FromForm(q *url.Values, n string) (*OWID, error) {
-	if q.Get(n) == "" {
-		return nil, fmt.Errorf("key '%s' missing from form", n)
+	if q == nil || q.Get(n) == "" {
+		return nil, newParseError(MissingInput, "key '%s' missing from form", n)
 	}
 	o, err := FromBase64(q.Get(n))
 	if err != nil {
-		return nil, fmt.Errorf("key '%s' %s", n, err.Error())
+		// Wrapped, not formatted. Formatting turned the reason into text and
+		// a caller could no longer reach it with errors.As, so this surface
+		// alone reported no status.
+		return nil, fmt.Errorf("key '%s': %w", n, err)
 	}
 	return o, nil
 }
