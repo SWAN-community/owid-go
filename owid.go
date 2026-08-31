@@ -24,7 +24,9 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
+	"unicode"
 )
 
 const (
@@ -348,7 +350,7 @@ func FromBase64(value string) (*OWID, error) {
 	if value == "" {
 		return nil, newParseError(MissingInput, "")
 	}
-	b, err := base64.StdEncoding.DecodeString(value)
+	b, err := decodeBase64(value)
 	if err != nil {
 		// Not valid base 64 is one of the expected outcomes on a public
 		// surface, so it is reported with the same vocabulary as everything
@@ -357,6 +359,25 @@ func FromBase64(value string) (*OWID, error) {
 		return nil, newParseError(InvalidBase64, "")
 	}
 	return FromByteArray(b)
+}
+
+// decodeBase64 accepts the standard alphabet with or without its trailing
+// padding, because both are ordinary ways to carry an encoded OWID and the
+// other implementations accept both. Whitespace does not count towards the
+// group of four. A length one over a group encodes no whole byte and cannot
+// have come from an encoder, so no padding can mend it and the standard
+// decoder is left to refuse it.
+func decodeBase64(value string) ([]byte, error) {
+	significant := 0
+	for _, r := range value {
+		if !unicode.IsSpace(r) {
+			significant++
+		}
+	}
+	if over := significant % 4; over != 0 && over != 1 {
+		value += strings.Repeat("=", 4-over)
+	}
+	return base64.StdEncoding.DecodeString(value)
 }
 
 // FromForm extracts the base64 string from the form and returns the OWID.

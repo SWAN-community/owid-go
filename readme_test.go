@@ -274,10 +274,11 @@ func TestReadmeAbsentNodeInARun(t *testing.T) {
 	}
 }
 
-// TestReadmeBase64IsPadded holds the README to what this implementation
-// accepts, being the standard encoding with padding, because a caller sent
-// base 64 without it gets InvalidBase64 rather than an OWID.
-func TestReadmeBase64IsPadded(t *testing.T) {
+// TestReadmeBase64PaddingIsOptional holds the README to what this
+// implementation accepts, being the standard alphabet with or without its
+// trailing padding, as the other implementations do. A length one over a
+// group of four encodes no whole byte, so that stays InvalidBase64.
+func TestReadmeBase64PaddingIsOptional(t *testing.T) {
 	crypto, err := NewCrypto()
 	if err != nil {
 		t.Fatal(err)
@@ -300,7 +301,19 @@ func TestReadmeBase64IsPadded(t *testing.T) {
 		t.Fatal("this payload should produce padded base 64")
 	}
 
-	_, err = FromBase64(stripped)
+	back, err := FromBase64(stripped)
+	if err != nil {
+		t.Fatalf("unpadded base 64 should parse, got %v", err)
+	}
+	if !bytes.Equal(back.Payload(), []byte{7}) {
+		t.Errorf("payload changed on the unpadded route")
+	}
+
+	broken := stripped + "A"
+	for len(broken)%4 != 1 {
+		broken += "A"
+	}
+	_, err = FromBase64(broken)
 	var pe *ParseError
 	if !errors.As(err, &pe) || pe.Status != InvalidBase64 {
 		t.Errorf("expected %s, got %v", InvalidBase64, err)

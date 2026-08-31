@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"fmt"
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -94,7 +95,11 @@ func TestOWIDBase64CorruptShort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = FromBase64(a[:len(a)-1])
+	// Drop the last character that carries data rather than the last
+	// character of the string, because the string may end in padding and
+	// padding is optional, so removing it is not corruption.
+	significant := strings.TrimRight(a, "=")
+	_, err = FromBase64(significant[:len(significant)-1])
 	if err == nil {
 		t.Fatal(fmt.Errorf("corrupt base 64 string should result in error"))
 	}

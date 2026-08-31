@@ -179,7 +179,7 @@ means the same thing whichever language read the bytes.
 |--------|---------|
 | `Parsed` | The bytes are a structurally valid OWID, and nothing is said about the signature. A read that succeeds hands back the OWID and no error, so this member is the vocabulary's name for success rather than a value a caller is given |
 | `MissingInput` | Nothing was supplied to read |
-| `InvalidBase64` | The text is not base 64, so there are no bytes to read. The standard encoding with padding is expected |
+| `InvalidBase64` | The text is not base 64, so there are no bytes to read. The standard alphabet is accepted with or without its trailing padding |
 | `UnsupportedVersion` | The first byte names a version this implementation does not know |
 | `UnexpectedEnd` | The data stopped in the middle of a field, or a frame's declared payload runs past the bytes supplied |
 | `InvalidDomainEncoding` | The creator domain is not terminated within the 253 character maximum |
