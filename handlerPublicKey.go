@@ -90,6 +90,6 @@ func parsePublicKeyDate(r *http.Request) (*time.Time, error) {
 			"date must be the number of minutes since 2020-01-01 UTC " +
 				"as an unsigned 32-bit integer")
 	}
-	t := ioDateBase.Add(time.Duration(m) * time.Minute)
+	t := dateFromMinutes(uint32(m))
 	return &t, nil
 }

@@ -234,7 +234,7 @@ func (o *OWID) Verify(scheme string) (bool, error) {
 	// key rotation still verify. Creators that do not support dated lookup
 	// ignore the parameter and return the current key.
 	if !o.date.Before(ioDateBase) {
-		minutes := uint32(o.date.Sub(ioDateBase).Minutes())
+		minutes := minutesSinceBase(o.date)
 		q.Set("date", strconv.FormatUint(uint64(minutes), 10))
 	}
 	u.RawQuery = q.Encode()
