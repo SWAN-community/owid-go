@@ -19,6 +19,7 @@ package owid
 import (
 	"bytes"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -220,40 +221,130 @@ func (o *OWID) VerifyWithPublicKey(
 	return o.VerifyWithCrypto(c, others)
 }
 
-// Verify this OWID and it's ancestors by fetching the public key from the
-// domain associated with the OWID.
-func (o *OWID) Verify(scheme string) (bool, error) {
+// publicKeyURL is the well known end point that serves the creator's public
+// key, carrying this OWID's own date so that a creator which has rotated its
+// key returns the key that was current when this OWID was created. Creators
+// that do not support the dated lookup ignore the parameter and return the
+// current key, which is what an undated request would have received anyway.
+func (o *OWID) publicKeyURL(scheme string) string {
 	u := url.URL{
 		Scheme: scheme,
 		Host:   o.domain,
 		Path:   fmt.Sprintf("/owid/api/v%d/public-key", o.version)}
 	q := u.Query()
 	q.Set("format", "pkcs")
-	// Send the OWID's own date so the creator can return the signing key that
-	// was current when this OWID was created, letting OWIDs signed before a
-	// key rotation still verify. Creators that do not support dated lookup
-	// ignore the parameter and return the current key.
 	if !o.date.Before(ioDateBase) {
 		minutes := minutesSinceBase(o.date)
 		q.Set("date", strconv.FormatUint(uint64(minutes), 10))
 	}
 	u.RawQuery = q.Encode()
-	r, err := client.Get(u.String())
+	return u.String()
+}
+
+// KeyFetchError says that the creator's public key could not be obtained, and
+// carries the status to report for it.
+//
+// The status is decided where the failure happens, so a caller never has to
+// read message text to tell an outage from a signature that does not match.
+// Before this existed, a network verify returned a bare false with an error,
+// and "Domain '51d.es' return code '401'" was told apart from a forgery only
+// by parsing the string.
+type KeyFetchError struct {
+	// Status is what to report for the identifier whose key this was. It is
+	// never SignatureInvalid, because the signature was never examined.
+	Status SignatureStatus
+
+	// Domain is the creator domain the key was asked of.
+	Domain string
+
+	// StatusCode is the HTTP response code, or zero where no response
+	// arrived at all.
+	StatusCode int
+
+	// Err is the underlying failure, where there was one.
+	Err error
+}
+
+func (e *KeyFetchError) Error() string {
+	if e.StatusCode != 0 {
+		return fmt.Sprintf(
+			"Domain '%s' return code '%d'",
+			e.Domain,
+			e.StatusCode)
+	}
+	return fmt.Sprintf("Domain '%s' %s", e.Domain, e.Err)
+}
+
+func (e *KeyFetchError) Unwrap() error { return e.Err }
+
+// fetchPublicKey returns the PEM of the creator's public key for the date this
+// OWID was created. A failure is a *KeyFetchError carrying the status to
+// report, so both the boolean and the status forms of verification decide the
+// outcome the same way.
+func (o *OWID) fetchPublicKey(scheme string) (string, error) {
+	r, err := client.Get(o.publicKeyURL(scheme))
 	if err != nil {
-		return false, err
+		return "", &KeyFetchError{
+			Status: KeyUnavailable,
+			Domain: o.domain,
+			Err:    err}
 	}
 	defer r.Body.Close()
 	if r.StatusCode != http.StatusOK {
-		return false, fmt.Errorf(
-			"Domain '%s' return code '%d'",
-			o.domain,
-			r.StatusCode)
+		return "", &KeyFetchError{
+			Status:     KeyUnavailable,
+			Domain:     o.domain,
+			StatusCode: r.StatusCode}
 	}
 	v, err := ioutil.ReadAll(r.Body)
 	if err != nil {
+		return "", &KeyFetchError{
+			Status:     KeyUnavailable,
+			Domain:     o.domain,
+			StatusCode: r.StatusCode,
+			Err:        err}
+	}
+	return string(v), nil
+}
+
+// Verify this OWID and it's ancestors by fetching the public key from the
+// domain associated with the OWID.
+//
+// The false this returns alongside an error does not mean the signature is
+// wrong, because an outage produces the same pair as a forgery does. Use
+// SignatureStatusFromDomain where the difference matters, which is anywhere
+// the answer decides whether to distrust an identifier.
+func (o *OWID) Verify(scheme string) (bool, error) {
+	p, err := o.fetchPublicKey(scheme)
+	if err != nil {
 		return false, err
 	}
-	return o.VerifyWithPublicKey(string(v))
+	return o.VerifyWithPublicKey(p)
+}
+
+// SignatureStatusFromDomain says whether the signature is genuine, or why that
+// could not be decided, fetching the public key from the domain associated
+// with the OWID.
+//
+// This is Verify answered with the status vocabulary. A key that cannot be
+// fetched is KeyUnavailable and one that arrives in a form this package cannot
+// read is InvalidKey. Neither is SignatureInvalid, because an outage or a
+// badly served key leaves the signature unjudged, and only SignatureInvalid
+// means the identifier should be distrusted.
+//
+// The Rust port answers the same question with Owid::verify_status.
+func (o *OWID) SignatureStatusFromDomain(
+	scheme string,
+	others ...*OWID) SignatureStatus {
+	p, err := o.fetchPublicKey(scheme)
+	if err != nil {
+		var k *KeyFetchError
+		if errors.As(err, &k) {
+			return k.Status
+		}
+		return KeyUnavailable
+	}
+	return o.SignatureStatusWithPublicKey(p, others...)
 }
 
 // ToBuffer appends the OWID to the buffer provided.
