@@ -49,6 +49,13 @@ import (
 // carried into the expected request as well.
 const fixtureIdentifierMinutes = 3510720
 
+// requestMoment is the moment the stand in end point treats as now, a week
+// after the fixture identifier was signed. A real creator answers an undated
+// request with the key in force at the moment of the request, and clamps a
+// date in the future to that moment, so fixing the moment here keeps the
+// tests repeatable whilst answering the way the live end point does.
+var requestMoment = time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC)
+
 // scheduledKey is one entry of the published schedule, being the date the key
 // came into force and the PEM the end point serves it as.
 type scheduledKey struct {
@@ -132,9 +139,9 @@ func keyInForce(s []scheduledKey, d time.Time) *scheduledKey {
 
 // keyServer stands in for the creator's public key end point, answering the
 // way the cloud controller does. A request naming a date is served the key
-// that was in force then, a request without one is served the newest key in
-// the schedule, which is what the current key means, and a date the schedule
-// does not reach is a 404.
+// that was in force then, a request without one is served the key in force
+// at requestMoment, a date after requestMoment is read as requestMoment, and
+// a date the schedule does not reach is a 404.
 //
 // It records the date parameter of every request, so a test can say what went
 // over the wire rather than only what the client meant to send.
@@ -151,19 +158,19 @@ func newKeyServer(t *testing.T) *keyServer {
 		func(w http.ResponseWriter, r *http.Request) {
 			d := r.URL.Query().Get("date")
 			k.dates = append(k.dates, d)
-			var key *scheduledKey
-			if d == "" {
-				key = &k.schedule[len(k.schedule)-1]
-			} else {
+			asked := requestMoment
+			if d != "" {
 				m, err := strconv.ParseInt(d, 10, 64)
 				if err != nil {
 					w.WriteHeader(http.StatusBadRequest)
 					return
 				}
-				key = keyInForce(
-					k.schedule,
-					ioDateBase.Add(time.Duration(m)*time.Minute))
+				asked = ioDateBase.Add(time.Duration(m) * time.Minute)
+				if asked.After(requestMoment) {
+					asked = requestMoment
+				}
 			}
+			key := keyInForce(k.schedule, asked)
 			if key == nil {
 				w.WriteHeader(http.StatusNotFound)
 				return
@@ -209,15 +216,20 @@ func TestFixtureIdentifierVerifiesAgainstThePublishedSchedule(t *testing.T) {
 	}
 }
 
-// TestCurrentKeyDoesNotVerifyAnEarlierWeeksIdentifier is why the date has to
-// be sent at all. Keys rotate weekly, so the key that is current when an
+// TestALaterWeeksKeyDoesNotVerifyAnEarlierWeeksIdentifier is why the date has
+// to be sent at all. Keys rotate weekly, so the key in force when an
 // identifier is checked is not the key that signed it unless the check
 // happens in the same week.
-func TestCurrentKeyDoesNotVerifyAnEarlierWeeksIdentifier(t *testing.T) {
+func TestALaterWeeksKeyDoesNotVerifyAnEarlierWeeksIdentifier(t *testing.T) {
 	o := fixtureIdentifier(t)
-	s := fixtureSchedule(t)
-	current := s[len(s)-1]
-	if got := o.SignatureStatusWithPublicKey(current.pem); got != SignatureInvalid {
+	later := keyInForce(fixtureSchedule(t), requestMoment)
+	if later == nil {
+		t.Fatal("the schedule should cover the moment of the request")
+	}
+	if !later.startsAt.After(o.Date()) {
+		t.Fatalf("the key in force a week later should start after the identifier, got %s", later.startsAt)
+	}
+	if got := o.SignatureStatusWithPublicKey(later.pem); got != SignatureInvalid {
 		t.Errorf("expected SignatureInvalid, got %s", got)
 	}
 }
