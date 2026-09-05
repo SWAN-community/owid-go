@@ -56,6 +56,35 @@ either limit on behalf of the application.
 go get github.com/SWAN-community/owid-go
 ```
 
+### The import path
+
+`github.com/SWAN-community/owid-go` is the only import path this module has.
+It is the path declared in `go.mod`, and Go checks that a module declares the
+path it was required as, so requiring it by any other path fails the build
+with:
+
+```text
+module declares its path as: github.com/SWAN-community/owid-go
+        but was required as: github.com/51Degrees/owid-go
+```
+
+A copy of this repository is published at `github.com/51Degrees/owid-go`. It
+is a mirror of the same module and not a separate one, so it declares the SWAN
+path as well and must not be required directly. Import the SWAN path in every
+consumer, whichever copy the source was read from. The path is deliberately
+left alone, because changing it to match a mirror would break every consumer
+that already requires the SWAN path, which is all of them.
+
+Where a consumer has to build against the mirror, for example while a change
+is still in review there, keep the require on the SWAN path and point it at
+the mirror with a replace directive, which is what replace is for:
+
+```text
+require github.com/SWAN-community/owid-go v0.0.0
+
+replace github.com/SWAN-community/owid-go => github.com/51Degrees/owid-go v0.0.0
+```
+
 ## Usage
 
 Create a key pair, sign an OWID and verify it.
@@ -122,6 +151,25 @@ valid, err := o.VerifyWithPublicKey(publicKeyPem)
 // the OWID's own date so that a creator which has rotated its key can return
 // the key that was current when this OWID was created.
 valid, err = o.Verify("https")
+```
+
+The false that `Verify` returns alongside an error does not mean the signature
+is wrong, because an outage produces the same pair as a forgery does. Where
+the difference matters, and it matters anywhere the answer decides whether to
+distrust an identifier, ask for the status instead. A key that could not be
+fetched is `KeyUnavailable`, one that arrived in a form this package cannot
+read is `InvalidKey`, and only `SignatureInvalid` means the identifier should
+be distrusted.
+
+```go
+switch o.SignatureStatusFromDomain("https") {
+case owid.SignatureValid:
+	// The signature is genuine for the key the creator published.
+case owid.SignatureInvalid:
+	// The only answer that means the identifier should be distrusted.
+default:
+	// The question could not be answered, so nothing is known either way.
+}
 ```
 
 OWIDs can be chained by passing other OWIDs to the create operation. The same
