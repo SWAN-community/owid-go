@@ -240,8 +240,8 @@ func TestPublicKeyHandlerWithDateSelectsKey(t *testing.T) {
 	}
 	s.SetPublicKeyStore(NewDatedPublicKeyStore(map[string][]DatedKey{
 		testDomain: {
-			{Created: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), PublicKey: "KEY-OLD"},
-			{Created: time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC), PublicKey: "KEY-NEW"},
+			{StartsAt: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), PublicKey: "KEY-OLD"},
+			{StartsAt: time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC), PublicKey: "KEY-NEW"},
 		},
 	}))
 	minutes := uint32(
@@ -264,7 +264,7 @@ func TestPublicKeyHandlerDateBeforeOldestReturns404(t *testing.T) {
 	}
 	s.SetPublicKeyStore(NewDatedPublicKeyStore(map[string][]DatedKey{
 		testDomain: {
-			{Created: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), PublicKey: "KEY"},
+			{StartsAt: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), PublicKey: "KEY"},
 		},
 	}))
 	q := url.Values{}
@@ -676,8 +676,8 @@ func TestCreatorHandlerWithDateSelectsKey(t *testing.T) {
 	}
 	s.SetPublicKeyStore(NewDatedPublicKeyStore(map[string][]DatedKey{
 		testDomain: {
-			{Created: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), PublicKey: oldPem},
-			{Created: time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC), PublicKey: newPem},
+			{StartsAt: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), PublicKey: oldPem},
+			{StartsAt: time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC), PublicKey: newPem},
 		},
 	}))
 	minutes := uint32(
@@ -708,7 +708,7 @@ func TestCreatorHandlerDateBeforeOldestReturns404(t *testing.T) {
 	}
 	s.SetPublicKeyStore(NewDatedPublicKeyStore(map[string][]DatedKey{
 		testDomain: {
-			{Created: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), PublicKey: pem},
+			{StartsAt: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), PublicKey: pem},
 		},
 	}))
 	q := url.Values{}
