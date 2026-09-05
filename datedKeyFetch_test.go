@@ -186,6 +186,11 @@ func newKeyServer(t *testing.T) *keyServer {
 // covers the domain.
 func useServer(t *testing.T, raw string) {
 	t.Helper()
+	// Keys are held against the URL they were fetched from, and every test
+	// here asks for the same identifier's key, so each starts with nothing
+	// held.
+	ClearKeyCache()
+	t.Cleanup(ClearKeyCache)
 	target, err := url.Parse(raw)
 	if err != nil {
 		t.Fatal(err)

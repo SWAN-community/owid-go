@@ -43,7 +43,7 @@ const (
 var client *http.Client
 
 func init() {
-	client = &http.Client{}
+	client = &http.Client{Timeout: keyFetchTimeout}
 }
 
 // OWID structure which can be used as a node in a tree.
@@ -282,7 +282,11 @@ func (e *KeyFetchError) Unwrap() error { return e.Err }
 // report, so both the boolean and the status forms of verification decide the
 // outcome the same way.
 func (o *OWID) fetchPublicKey(scheme string) (string, error) {
-	r, err := client.Get(o.publicKeyURL(scheme))
+	url := o.publicKeyURL(scheme)
+	if pem, held := cachedKey(url); held {
+		return pem, nil
+	}
+	r, err := client.Get(url)
 	if err != nil {
 		return "", &KeyFetchError{
 			Status: KeyUnavailable,
@@ -304,7 +308,9 @@ func (o *OWID) fetchPublicKey(scheme string) (string, error) {
 			StatusCode: r.StatusCode,
 			Err:        err}
 	}
-	return string(v), nil
+	pem := string(v)
+	rememberKey(url, pem)
+	return pem, nil
 }
 
 // Verify this OWID and it's ancestors by fetching the public key from the

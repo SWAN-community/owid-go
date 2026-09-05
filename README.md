@@ -354,8 +354,13 @@ By default the public-key endpoint serves the single key held by the creator
 store and ignores `date`, which suits a creator that uses one long-lived key.
 A creator that rotates its key can serve historical keys by supplying a
 `PublicKeyStore` via `Services.SetPublicKeyStore`. The built-in
-`NewDatedPublicKeyStore` applies the selection rule (the newest key created on
-or before the requested date) over a set of dated keys per domain.
+`NewDatedPublicKeyStore` applies the selection rule the 51Degrees cloud
+applies over a set of dated keys per domain: the key in force at the
+requested date, being the key with the latest start at or before it, the key
+in force now when no date is sent, and a date later than now read as now. A
+key's start is the schedule position, not the moment its material was
+generated, because a creator may generate many periods in one run and a key
+that has not started has signed nothing.
 
 ### Requiring authentication (optional)
 

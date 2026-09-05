@@ -32,9 +32,18 @@ type PublicKeyStore interface {
 	GetPublicKey(domain string, date *time.Time) (string, error)
 }
 
-// DatedKey is a signing public key together with the date it became current.
+// DatedKey is a signing public key together with the moment it comes into
+// force. A key stays in force until the next key starts, so the last key of
+// a schedule covers every date after it.
+//
+// StartsAt is the schedule position and not the moment the key material was
+// generated. The two only agree whilst keys are generated one period at a
+// time. A creator that writes several future periods in one run breaks the
+// agreement, and selecting on the moment of generation then returns a key
+// whose period has not started, so every genuine identifier of that period
+// reads as forged. That moment is deliberately not held here at all.
 type DatedKey struct {
-	Created   time.Time // UTC date the key was created
+	StartsAt  time.Time // UTC moment from which the key signs
 	PublicKey string    // Public key in PEM form
 }
 
@@ -60,7 +69,8 @@ func (s *creatorPublicKeyStore) GetPublicKey(
 }
 
 // DatedPublicKeyStore serves historical keys per domain, applying the
-// selection rule: the newest key created on or before the requested date.
+// selection rule the 51Degrees cloud applies: the key in force at the
+// requested date, being the key with the latest start at or before it.
 type DatedPublicKeyStore struct {
 	keys map[string][]DatedKey
 }
@@ -78,17 +88,24 @@ func (s *DatedPublicKeyStore) GetPublicKey(
 	return selectPublicKey(s.keys[domain], date), nil
 }
 
-// selectPublicKey returns the newest key created on or before date, or the
-// newest key when date is nil. Returns an empty string when date predates
-// every key.
+// selectPublicKey returns the key in force at the date, being the key with
+// the latest start at or before it, or the key in force now when date is
+// nil. A date later than now is read as now, because a schedule is
+// published ahead of time and a key that has not started has signed
+// nothing. Returns an empty string when date predates every key, or when no
+// key has started yet.
 func selectPublicKey(keys []DatedKey, date *time.Time) string {
+	at := time.Now().UTC()
+	if date != nil && date.Before(at) {
+		at = *date
+	}
 	var best *DatedKey
 	for i := range keys {
 		k := &keys[i]
-		if date != nil && k.Created.After(*date) {
+		if k.StartsAt.After(at) {
 			continue
 		}
-		if best == nil || k.Created.After(best.Created) {
+		if best == nil || k.StartsAt.After(best.StartsAt) {
 			best = k
 		}
 	}
