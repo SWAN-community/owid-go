@@ -43,7 +43,30 @@ const (
 var client *http.Client
 
 func init() {
-	client = &http.Client{Timeout: keyFetchTimeout}
+	client = newKeyClient(nil)
+}
+
+// newKeyClient builds the client every key fetch goes through, with the
+// transport given or the default one. It is the single place the policy
+// lives, so a test that points the client at a stand in gets the same
+// policy production has rather than a bare client without it.
+//
+// A redirect is never followed. The default client follows up to ten, to
+// any host and from https down to plain http, so a creator whose domain
+// answered 302 to some other place would have that other place's key
+// trusted as its own, and a network attacker able to bend the creator's
+// DNS, or a creator that was simply misconfigured, could put a key there
+// and have forgeries verify. Returning the redirect as the response makes
+// it a non-200, which fetchPublicKey reads as the key being unavailable,
+// which it is.
+func newKeyClient(transport http.RoundTripper) *http.Client {
+	return &http.Client{
+		Transport: transport,
+		Timeout:   keyFetchTimeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 }
 
 // OWID structure which can be used as a node in a tree.
