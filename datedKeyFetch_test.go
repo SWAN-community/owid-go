@@ -197,7 +197,9 @@ func useServer(t *testing.T, raw string) {
 	}
 	orig := client
 	t.Cleanup(func() { client = orig })
-	client = &http.Client{Transport: &redirectTransport{target: target}}
+	// Built the way production builds it, so the redirect policy is under
+	// test here and not only in init.
+	client = newKeyClient(&redirectTransport{target: target})
 }
 
 // TestFixtureIdentifierVerifiesAgainstThePublishedSchedule checks a genuine
@@ -364,6 +366,53 @@ func TestFetchedKeyThatCannotBeReadIsInvalidKey(t *testing.T) {
 
 	if got := o.SignatureStatusFromDomain("https"); got != InvalidKey {
 		t.Errorf("expected InvalidKey, got %s", got)
+	}
+}
+
+// TestARedirectIsNotFollowed proves a creator whose domain answers with a
+// redirect does not get the key at the other end trusted as its own. The
+// other end here serves the genuine key that would verify the identifier,
+// so following the redirect would read as SignatureValid, and refusing it
+// must read as the key being unavailable with the 302 carried. Without
+// this a network attacker able to bend a creator's DNS, or a creator that
+// was misconfigured, could substitute the key and forgeries would verify.
+func TestARedirectIsNotFollowed(t *testing.T) {
+	o := fixtureIdentifier(t)
+	k := keyInForce(fixtureSchedule(t), o.Date())
+	if k == nil {
+		t.Fatal("the schedule should cover the date")
+	}
+	elsewhere := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			fmt.Fprint(w, k.pem)
+		}))
+	defer elsewhere.Close()
+	followed := false
+	creator := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, elsewhere.URL+"/key.pem", http.StatusFound)
+		}))
+	defer creator.Close()
+	elsewhere.Config.Handler = http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			followed = true
+			fmt.Fprint(w, k.pem)
+		})
+	useServer(t, creator.URL)
+
+	if got := o.SignatureStatusFromDomain("https"); got != KeyUnavailable {
+		t.Errorf("expected KeyUnavailable, got %s", got)
+	}
+	_, err := o.fetchPublicKey("https")
+	var kf *KeyFetchError
+	if !errors.As(err, &kf) {
+		t.Fatalf("expected a KeyFetchError, got %v", err)
+	}
+	if kf.StatusCode != http.StatusFound {
+		t.Errorf("expected the 302 to be carried, got %d", kf.StatusCode)
+	}
+	if followed {
+		t.Error("the request that would have gone to the other host was made")
 	}
 }
 
