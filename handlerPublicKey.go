@@ -17,6 +17,7 @@
 package owid
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -25,7 +26,12 @@ import (
 
 // HandlerPublicKey returns the public key associated with the creator. An
 // optional date parameter, minutes since 2020-01-01 UTC, selects the key that
-// was current at that date.
+// was current at that date. The answer is a PublicKeyResponse as JSON, which
+// states the moments the key is valid from and to where the store knows them,
+// so a client holds the key for the whole span from one answer. The answer is
+// checked before it is sent, and a store whose key cannot be read or whose
+// schedule contradicts itself is reported as a server error rather than
+// passed on.
 func HandlerPublicKey(s *Services) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		err := r.ParseForm()
@@ -41,7 +47,7 @@ func HandlerPublicKey(s *Services) http.HandlerFunc {
 			returnAPIError(s, w, err, http.StatusBadRequest)
 			return
 		}
-		p, err := s.publicKeyStore().GetPublicKey(r.Host, date)
+		p, period, err := publicKeyWithPeriod(s.publicKeyStore(), r.Host, date)
 		if err != nil {
 			returnAPIError(s, w, err, http.StatusInternalServerError)
 			return
@@ -71,9 +77,40 @@ func HandlerPublicKey(s *Services) http.HandlerFunc {
 			returnAPIError(s, w, err, http.StatusInternalServerError)
 			return
 		}
+		asked := time.Now().UTC()
+		if date != nil && date.Before(asked) {
+			asked = *date
+		}
+		response, err := NewPublicKeyResponse(p, period, asked)
+		if err != nil {
+			returnAPIError(s, w, err, http.StatusInternalServerError)
+			return
+		}
+		body, err := json.Marshal(response)
+		if err != nil {
+			returnAPIError(s, w, err, http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Cache-Control", "max-age=60")
-		sendResponse(s, w, "text/plain; charset=utf-8", []byte(p))
+		sendResponse(s, w, "application/json; charset=utf-8", body)
 	}
+}
+
+// publicKeyWithPeriod asks the store for the key in force at the date, and for
+// the span it covers where the store knows it.
+func publicKeyWithPeriod(
+	store PublicKeyStore,
+	domain string,
+	date *time.Time) (string, *KeyPeriod, error) {
+	if periods, ok := store.(PublicKeyPeriodStore); ok {
+		period, err := periods.GetPublicKeyPeriod(domain, date)
+		if err != nil || period == nil {
+			return "", nil, err
+		}
+		return period.PublicKey, period, nil
+	}
+	p, err := store.GetPublicKey(domain, date)
+	return p, nil, err
 }
 
 // parsePublicKeyDate reads the optional date parameter, the number of minutes

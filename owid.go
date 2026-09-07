@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -186,9 +187,7 @@ func (o *OWID) VerifyWithCrypto(c *Crypto, others []*OWID) (bool, error) {
 // could not be answered, which is a different thing and must never be reported
 // as a forgery. A key that cannot be decoded leaves the signature unjudged,
 // and a caller acting on "invalid" would reject good identifiers during an
-// outage. On 30 August 2026 the key end points served PEM a strict parser
-// rejects and every offline verification failed, with the keys and the
-// identifiers both fine.
+// outage.
 func (o *OWID) SignatureStatusWithPublicKey(
 	public string,
 	others ...*OWID) SignatureStatus {
@@ -250,15 +249,25 @@ func (o *OWID) VerifyWithPublicKey(
 // that do not support the dated lookup ignore the parameter and return the
 // current key, which is what an undated request would have received anyway.
 func (o *OWID) publicKeyURL(scheme string) string {
+	if o.date.Before(ioDateBase) {
+		return o.publicKeyURLAt(scheme, nil)
+	}
+	minutes := minutesSinceBase(o.date)
+	return o.publicKeyURLAt(scheme, &minutes)
+}
+
+// publicKeyURLAt is the URL of the creator's public key end point asking for
+// the key in force at the minute given, or for the key in force now where
+// the minute is nil.
+func (o *OWID) publicKeyURLAt(scheme string, minutes *uint32) string {
 	u := url.URL{
 		Scheme: scheme,
 		Host:   o.domain,
 		Path:   fmt.Sprintf("/owid/api/v%d/public-key", o.version)}
 	q := u.Query()
 	q.Set("format", "pkcs")
-	if !o.date.Before(ioDateBase) {
-		minutes := minutesSinceBase(o.date)
-		q.Set("date", strconv.FormatUint(uint64(minutes), 10))
+	if minutes != nil {
+		q.Set("date", strconv.FormatUint(uint64(*minutes), 10))
 	}
 	u.RawQuery = q.Encode()
 	return u.String()
@@ -305,35 +314,112 @@ func (e *KeyFetchError) Unwrap() error { return e.Err }
 // report, so both the boolean and the status forms of verification decide the
 // outcome the same way.
 func (o *OWID) fetchPublicKey(scheme string) (string, error) {
-	url := o.publicKeyURL(scheme)
-	if pem, held := cachedKey(url); held {
-		return pem, nil
+	answer, err := o.fetchKeyAt(o.publicKeyURL(scheme))
+	return answer.pem, err
+}
+
+// fetchKeyAt returns the key the URL asks for, from the cache where a held key
+// is known to cover the minute asked about and otherwise from the creator,
+// together with the span the key is known to cover. The answer is the JSON
+// form, which carries the moments the key is valid from and to as well as the
+// key, so the whole span is held from that one answer. An answer in any other
+// form, the PEM alone among them, is reported as a key that cannot be read.
+func (o *OWID) fetchKeyAt(url string) (keyAnswer, error) {
+	if answer, held := cachedKey(url); held {
+		return answer, nil
 	}
+	fetch, lead := shareFetch(url)
+	if !lead {
+		// Another caller is making this request. Its answer is this
+		// caller's answer too.
+		<-fetch.done
+		return fetch.answer, fetch.err
+	}
+	answer, err := o.requestKey(url)
+	fetch.finish(url, answer, err)
+	return answer, err
+}
+
+// requestKey makes the request for the URL and holds the answer.
+func (o *OWID) requestKey(url string) (keyAnswer, error) {
 	r, err := client.Get(url)
 	if err != nil {
-		return "", &KeyFetchError{
+		return keyAnswer{}, &KeyFetchError{
 			Status: KeyUnavailable,
 			Domain: o.domain,
 			Err:    err}
 	}
 	defer r.Body.Close()
 	if r.StatusCode != http.StatusOK {
-		return "", &KeyFetchError{
+		return keyAnswer{}, &KeyFetchError{
 			Status:     KeyUnavailable,
 			Domain:     o.domain,
 			StatusCode: r.StatusCode}
 	}
 	v, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		return "", &KeyFetchError{
+		return keyAnswer{}, &KeyFetchError{
 			Status:     KeyUnavailable,
 			Domain:     o.domain,
 			StatusCode: r.StatusCode,
 			Err:        err}
 	}
-	pem := string(v)
-	rememberKey(url, pem)
-	return pem, nil
+	pem, start, end, err := ReadPublicKeyResponse(v)
+	if err != nil {
+		return keyAnswer{}, &KeyFetchError{
+			Status:     InvalidKey,
+			Domain:     o.domain,
+			StatusCode: r.StatusCode,
+			Err:        err}
+	}
+	return rememberKey(url, pem, start, end), nil
+}
+
+// neighbourVerifies asks whether a key neighbouring the one the OWID's own
+// minute selected verifies the signature instead.
+//
+// A creator's signing machines may not agree with its own schedule to the
+// minute, so an identifier dated just after a key started may have been
+// signed with the key before it, and one dated just before may have been
+// signed with the key after. Where the signature does not verify under the
+// key selected and the OWID's minute is within the clock drift allowance of
+// the edge of the span that key is known to cover, the key for the minute
+// just beyond that edge is asked for and tried. A key already known to cover
+// the neighbouring minute is not asked for again, and a neighbour that turns
+// out to be the same key is not tried again. This costs at most two more
+// requests, and only for a signature that has already failed.
+func (o *OWID) neighbourVerifies(scheme string, tried keyAnswer, others []*OWID) bool {
+	if o.date.Before(ioDateBase) {
+		return false
+	}
+	minute := int64(minutesSinceBase(o.date))
+	if tried.known && (uint32(minute) < tried.first || uint32(minute) > tried.last) {
+		// The key tried was never in force at the identifier's minute, so
+		// the identifier is not near an edge of that key's span. This is an
+		// undated request answered with the current key, or a creator whose
+		// answer did not cover the minute asked about, and the neighbours of
+		// the minute have nothing to do with the key tried.
+		return false
+	}
+	for _, at := range []int64{
+		minute - clockDriftAllowanceMinutes,
+		minute + clockDriftAllowanceMinutes} {
+		if at < 0 || at > math.MaxUint32 {
+			continue
+		}
+		neighbour := uint32(at)
+		if tried.known && neighbour >= tried.first && neighbour <= tried.last {
+			continue
+		}
+		answer, err := o.fetchKeyAt(o.publicKeyURLAt(scheme, &neighbour))
+		if err != nil || answer.pem == tried.pem {
+			continue
+		}
+		if o.SignatureStatusWithPublicKey(answer.pem, others...) == SignatureValid {
+			return true
+		}
+	}
+	return false
 }
 
 // Verify this OWID and it's ancestors by fetching the public key from the
@@ -344,11 +430,15 @@ func (o *OWID) fetchPublicKey(scheme string) (string, error) {
 // SignatureStatusFromDomain where the difference matters, which is anywhere
 // the answer decides whether to distrust an identifier.
 func (o *OWID) Verify(scheme string) (bool, error) {
-	p, err := o.fetchPublicKey(scheme)
+	answer, err := o.fetchKeyAt(o.publicKeyURL(scheme))
 	if err != nil {
 		return false, err
 	}
-	return o.VerifyWithPublicKey(p)
+	valid, err := o.VerifyWithPublicKey(answer.pem)
+	if err != nil || valid {
+		return valid, err
+	}
+	return o.neighbourVerifies(scheme, answer, nil), nil
 }
 
 // SignatureStatusFromDomain says whether the signature is genuine, or why that
@@ -365,7 +455,7 @@ func (o *OWID) Verify(scheme string) (bool, error) {
 func (o *OWID) SignatureStatusFromDomain(
 	scheme string,
 	others ...*OWID) SignatureStatus {
-	p, err := o.fetchPublicKey(scheme)
+	answer, err := o.fetchKeyAt(o.publicKeyURL(scheme))
 	if err != nil {
 		var k *KeyFetchError
 		if errors.As(err, &k) {
@@ -373,7 +463,11 @@ func (o *OWID) SignatureStatusFromDomain(
 		}
 		return KeyUnavailable
 	}
-	return o.SignatureStatusWithPublicKey(p, others...)
+	status := o.SignatureStatusWithPublicKey(answer.pem, others...)
+	if status == SignatureInvalid && o.neighbourVerifies(scheme, answer, others) {
+		return SignatureValid
+	}
+	return status
 }
 
 // ToBuffer appends the OWID to the buffer provided.

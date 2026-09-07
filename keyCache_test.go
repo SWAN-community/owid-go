@@ -17,18 +17,23 @@
 package owid
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
-// The key cache holds each key against the span of minutes the creator has
-// confirmed it for, rather than against the minute of one identifier. The
-// tests here drive fetchPublicKey against the stand in end point with
-// identifiers dated in the past, so the cache reads each minute as itself
-// rather than as now.
+// The key cache holds each key against the span of minutes it is known to
+// cover, rather than against the minute of one identifier. The tests here
+// drive fetchPublicKey against a stand in end point that answers the way the
+// handler in this package answers, with identifiers dated in the past so the
+// cache reads each minute as itself rather than as now.
 
 // at is a moment given as RFC 3339 text.
 func at(t *testing.T, moment string) time.Time {
@@ -68,7 +73,7 @@ func inForceAt(t *testing.T, k *keyServer, moment time.Time) string {
 // of its period until the next key starts, and that a minute outside every
 // confirmed span is asked about.
 func TestAMinuteBetweenTwoConfirmedMinutesIsServedFromTheCache(t *testing.T) {
-	k := newKeyServer(t)
+	k := newSpanlessKeyServer(t)
 	useServer(t, k.server.URL)
 	// The week of 31 August 2026, which the fixture identifier was signed
 	// in, and which is wholly in the past.
@@ -109,7 +114,7 @@ func TestAMinuteBetweenTwoConfirmedMinutesIsServedFromTheCache(t *testing.T) {
 // identifiers with a hundred different minutes inside one key's period cost a
 // hundred requests then. With the ends of the period confirmed they cost none.
 func TestAHundredIdentifiersInOneConfirmedPeriodMakeNoRequest(t *testing.T) {
-	k := newKeyServer(t)
+	k := newSpanlessKeyServer(t)
 	useServer(t, k.server.URL)
 	start := at(t, "2026-09-01T00:00:00Z")
 	pemAt(t, start)
@@ -128,7 +133,7 @@ func TestAHundredIdentifiersInOneConfirmedPeriodMakeNoRequest(t *testing.T) {
 // between them belong to neither key until the creator is asked, and every
 // answer agrees with the published schedule.
 func TestAKeyIsNeverServedForAMinuteOutsideItsConfirmedSpan(t *testing.T) {
-	k := newKeyServer(t)
+	k := newSpanlessKeyServer(t)
 	useServer(t, k.server.URL)
 	rotation := at(t, "2026-08-31T00:00:00Z")
 	week := 7 * 24 * time.Hour
@@ -177,10 +182,9 @@ func TestAKeyIsNeverServedForAMinuteOutsideItsConfirmedSpan(t *testing.T) {
 // clock drift allowance of now, or later, is asked about every time and never
 // held, because a creator whose clock differs from this one's may have read it
 // as its present rather than as the minute named, and that a minute beyond
-// the allowance is held as usual. Live identifiers therefore cost one request
-// per minute per creator, as they always did, and older ones cost none.
+// the allowance is held as usual. Live identifiers therefore cost one request per minute per creator and older ones cost none.
 func TestAMinuteWithinTheDriftAllowanceIsNotHeld(t *testing.T) {
-	k := newKeyServer(t)
+	k := newSpanlessKeyServer(t)
 	useServer(t, k.server.URL)
 	started := minutesSinceBase(time.Now().UTC())
 	now := time.Now().UTC()
@@ -209,11 +213,20 @@ func TestAMinuteWithinTheDriftAllowanceIsNotHeld(t *testing.T) {
 // a creator can do to the cache.
 func TestTheKeyCacheIsBounded(t *testing.T) {
 	requests := 0
+	// A real key for every minute, because the client checks each answer
+	// the way a creator does before sending it.
+	distinct := map[string]string{}
 	s := httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			requests++
-			fmt.Fprintf(w, "-----BEGIN PUBLIC KEY-----\n%s\n-----END PUBLIC KEY-----\n",
-				r.URL.Query().Get("date"))
+			minute := r.URL.Query().Get("date")
+			pem, made := distinct[minute]
+			if !made {
+				pem = freshPem(t)
+				distinct[minute] = pem
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(PublicKeyResponse{PublicKeySPKI: pem})
 		}))
 	t.Cleanup(s.Close)
 	useServer(t, s.URL)
@@ -225,5 +238,312 @@ func TestTheKeyCacheIsBounded(t *testing.T) {
 	}
 	if cachedKeyCount() > maximumCachedKeys {
 		t.Fatalf("held %d of at most %d", cachedKeyCount(), maximumCachedKeys)
+	}
+}
+
+// TestAKeyAnsweredWithItsSpanIsHeldForTheWholeSpan checks that a creator which
+// states the moments the key is valid from and to has the whole span held from
+// that one answer, so every other minute of the span is served without a
+// request.
+func TestAKeyAnsweredWithItsSpanIsHeldForTheWholeSpan(t *testing.T) {
+	k := newKeyServer(t)
+	useServer(t, k.server.URL)
+	pem := pemAt(t, at(t, "2026-08-31T00:01:00Z"))
+	for _, moment := range []string{"2026-09-06T23:59:00Z", "2026-09-03T12:00:00Z", "2026-08-31T00:00:00Z"} {
+		if pemAt(t, at(t, moment)) != pem {
+			t.Fatalf("the key served for %s should be the week's key", moment)
+		}
+	}
+	if len(k.dates) != 1 {
+		t.Fatalf("the whole week should be held from one answer, got %d requests", len(k.dates))
+	}
+	if cachedKeyCount() != 1 {
+		t.Fatalf("one key should be held, got %d", cachedKeyCount())
+	}
+	before := pemAt(t, at(t, "2026-08-30T23:59:00Z"))
+	if before == pem {
+		t.Fatal("the minute before the week should be the earlier week's key")
+	}
+	pemAt(t, at(t, "2026-08-24T00:00:00Z"))
+	if len(k.dates) != 2 {
+		t.Fatalf("the earlier week should be held from its one answer, got %d requests", len(k.dates))
+	}
+}
+
+// TestARecentMinuteIsServedWhereTheCreatorStatedTheSpan checks that the drift
+// allowance, which keeps minutes near now out of a cache built from confirmed
+// minutes, does not apply to a span the creator stated itself, so live
+// identifiers cost one request per key rather than one per minute.
+func TestARecentMinuteIsServedWhereTheCreatorStatedTheSpan(t *testing.T) {
+	k := newKeyServer(t)
+	useServer(t, k.server.URL)
+	now := time.Now().UTC()
+	current := keyInForce(k.schedule, now)
+	if current == nil || nextStart(k.schedule, current) == nil {
+		t.Skip("the fixture schedule has no key after the one in force now, so its span has no end")
+	}
+	pemAt(t, now.Add(-time.Minute))
+	pemAt(t, now)
+	pemAt(t, now.Add(-10*time.Minute))
+	if len(k.dates) != 1 {
+		t.Fatalf("the current key should be served for every recent minute from one answer, got %d requests", len(k.dates))
+	}
+}
+
+// signedAt is an OWID for the domain, dated at the moment, signed with the
+// crypto given. It stands for an identifier whose signing machine's clock did
+// not agree with the creator's schedule to the minute.
+func signedAt(t *testing.T, domain string, moment time.Time, c *Crypto) *OWID {
+	t.Helper()
+	o, err := newOwid(domain, moment, []byte("payload"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := o.sign(c, nil); err != nil {
+		t.Fatal(err)
+	}
+	return o
+}
+
+// TestASignatureFailingNearTheEdgeOfASpanIsCheckedAgainstTheNeighbour checks
+// that an identifier dated just after a key started, but signed with the key
+// before it, verifies, and one dated just before a key started but signed
+// with it verifies too, because the neighbouring key is tried when the
+// selected key fails within the drift allowance of the span's edge. Further
+// from the edge the failure stands.
+func TestASignatureFailingNearTheEdgeOfASpanIsCheckedAgainstTheNeighbour(t *testing.T) {
+	first, err := NewCrypto()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewCrypto()
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstPem, err := first.getSubjectPublicKeyInfo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondPem, err := second.getSubjectPublicKeyInfo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := at(t, "2026-08-24T00:00:00Z")
+	rotation := at(t, "2026-08-31T00:00:00Z")
+	end := at(t, "2026-09-07T00:00:00Z")
+	requests := 0
+	s := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			requests++
+			m, err := strconv.ParseUint(r.URL.Query().Get("date"), 10, 32)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			asked := ioDateBase.Add(time.Duration(m) * time.Minute)
+			if asked.Before(rotation) {
+				writeKeyAnswer(t, w, true, firstPem, start, &rotation, asked)
+				return
+			}
+			writeKeyAnswer(t, w, true, secondPem, rotation, &end, asked)
+		}))
+	t.Cleanup(s.Close)
+	useServer(t, s.URL)
+
+	// Dated five minutes into the second key's span, signed with the first.
+	late := signedAt(t, "creator.test", rotation.Add(5*time.Minute), first)
+	if status := late.SignatureStatusFromDomain("https"); status != SignatureValid {
+		t.Fatalf("an identifier signed with the earlier key just after the rotation should verify, got %v", status)
+	}
+	if requests != 2 {
+		t.Fatalf("the selected key and then the earlier key should be asked for, got %d requests", requests)
+	}
+	// Dated five minutes before the rotation, signed with the second key.
+	early := signedAt(t, "creator.test", rotation.Add(-5*time.Minute), second)
+	if status := early.SignatureStatusFromDomain("https"); status != SignatureValid {
+		t.Fatalf("an identifier signed with the later key just before the rotation should verify, got %v", status)
+	}
+	if requests != 2 {
+		t.Fatalf("both keys are held with their spans, so nothing more should be asked, got %d requests", requests)
+	}
+	// Dated twenty minutes into the second key's span, signed with the
+	// first, which is further from the edge than clocks are allowed to
+	// differ.
+	far := signedAt(t, "creator.test", rotation.Add(20*time.Minute), first)
+	if status := far.SignatureStatusFromDomain("https"); status != SignatureInvalid {
+		t.Fatalf("an identifier well inside the later key's span signed with the earlier key should not verify, got %v", status)
+	}
+	if requests != 2 {
+		t.Fatalf("the neighbouring minutes lie inside the spans already held, so nothing should be asked, got %d requests", requests)
+	}
+	// The boolean form agrees.
+	if valid, err := late.Verify("https"); err != nil || !valid {
+		t.Fatalf("Verify should agree with the status, got %v %v", valid, err)
+	}
+}
+
+// TestTheClientReadsWhatTheHandlerAnswers closes the loop between the two
+// halves of this package. The public key handler answers from a schedule, and
+// the client verifies identifiers against what it answered, holding the whole
+// span from the one answer, with nothing standing in for either side.
+func TestTheClientReadsWhatTheHandlerAnswers(t *testing.T) {
+	previous, err := NewCrypto()
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := NewCrypto()
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := NewCrypto()
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousPem, _ := previous.getSubjectPublicKeyInfo()
+	currentPem, _ := current.getSubjectPublicKeyInfo()
+	nextPem, _ := next.getSubjectPublicKeyInfo()
+	rotation := at(t, "2026-08-31T00:00:00Z")
+	week := 7 * 24 * time.Hour
+	s, err := getServices()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetAuthorizer(nil)
+	requests := 0
+	handler := HandlerPublicKey(s)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		handler(w, r)
+	}))
+	t.Cleanup(server.Close)
+	// The store is keyed by the host the request arrives on, which is the
+	// creator domain the identifier carries.
+	schedule := []DatedKey{
+		{StartsAt: rotation.Add(-week), PublicKey: previousPem},
+		{StartsAt: rotation, PublicKey: currentPem},
+		{StartsAt: rotation.Add(week), PublicKey: nextPem},
+	}
+	s.SetPublicKeyStore(NewDatedPublicKeyStore(map[string][]DatedKey{
+		"creator.test": schedule,
+		strings.TrimPrefix(server.URL, "http://"): schedule,
+	}))
+	useServer(t, server.URL)
+
+	first := signedAt(t, "creator.test", rotation.Add(3*24*time.Hour), current)
+	if status := first.SignatureStatusFromDomain("https"); status != SignatureValid {
+		t.Fatalf("the identifier should verify against the key the handler answered with, got %v", status)
+	}
+	second := signedAt(t, "creator.test", rotation.Add(6*24*time.Hour), current)
+	if status := second.SignatureStatusFromDomain("https"); status != SignatureValid {
+		t.Fatalf("a second identifier in the same week should verify, got %v", status)
+	}
+	if requests != 1 {
+		t.Fatalf("the whole week should be held from the handler's one answer, got %d requests", requests)
+	}
+	late := signedAt(t, "creator.test", rotation.Add(5*time.Minute), previous)
+	if status := late.SignatureStatusFromDomain("https"); status != SignatureValid {
+		t.Fatalf("an identifier signed with the earlier key just after the rotation should verify, got %v", status)
+	}
+	if requests != 2 {
+		t.Fatalf("the earlier key should be asked for once, got %d requests", requests)
+	}
+	forged := signedAt(t, "creator.test", rotation.Add(3*24*time.Hour), next)
+	if status := forged.SignatureStatusFromDomain("https"); status != SignatureInvalid {
+		t.Fatalf("an identifier signed with a key not in force at its date should not verify, got %v", status)
+	}
+}
+
+// TestAnAnswerThatIsNotTheJSONFormIsAKeyThatCannotBeRead checks that the PEM alone as text is reported as a key this package cannot read rather than used.
+func TestAnAnswerThatIsNotTheJSONFormIsAKeyThatCannotBeRead(t *testing.T) {
+	k := newKeyServer(t)
+	pem := k.schedule[0].pem
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprint(w, pem)
+	}))
+	t.Cleanup(s.Close)
+	useServer(t, s.URL)
+	if status := fixtureIdentifier(t).SignatureStatusFromDomain("https"); status != InvalidKey {
+		t.Fatalf("the PEM alone should be reported as a key that cannot be read, got %v", status)
+	}
+}
+
+// TestAnAnswerWhoseSpanEndsBeforeItStartsIsRefused checks that a creator
+// whose schedule contradicts itself is refused by the client as well as by
+// the checks a creator built on this package applies before answering.
+func TestAnAnswerWhoseSpanEndsBeforeItStartsIsRefused(t *testing.T) {
+	k := newKeyServer(t)
+	pem := k.schedule[0].pem
+	from := at(t, "2026-08-31T00:00:00Z")
+	to := at(t, "2026-08-24T00:00:00Z")
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(PublicKeyResponse{PublicKeySPKI: pem, ValidFrom: &from, ValidTo: &to})
+	}))
+	t.Cleanup(s.Close)
+	useServer(t, s.URL)
+	if status := fixtureIdentifier(t).SignatureStatusFromDomain("https"); status != InvalidKey {
+		t.Fatalf("a span that ends before it starts should be refused, got %v", status)
+	}
+	asked := from.Add(time.Hour)
+	if _, err := NewPublicKeyResponse(pem, &KeyPeriod{PublicKey: pem, StartsAt: from, EndsAt: &to}, asked); err == nil {
+		t.Fatal("a creator built on this package should refuse to answer with a span that ends before it starts")
+	}
+	if _, err := NewPublicKeyResponse("not a key", nil, asked); err == nil {
+		t.Fatal("a creator built on this package should refuse to answer with a key that cannot be read")
+	}
+	if _, err := NewPublicKeyResponse(pem, &KeyPeriod{PublicKey: pem, StartsAt: asked.Add(time.Minute)}, asked); err == nil {
+		t.Fatal("a creator built on this package should refuse to answer with a key that had not started")
+	}
+}
+
+// TestManyGoroutinesVerifyingOneIdentifierMakeOneRequest checks that
+// goroutines verifying the same identifier at the same moment make one
+// request for its key between them, and every one of them gets the answer.
+func TestManyGoroutinesVerifyingOneIdentifierMakeOneRequest(t *testing.T) {
+	c, err := NewCrypto()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pem, err := c.getSubjectPublicKeyInfo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var requests int32
+	s := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			atomic.AddInt32(&requests, 1)
+			// Held long enough for every goroutine to arrive while the
+			// request is under way.
+			time.Sleep(300 * time.Millisecond)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(PublicKeyResponse{PublicKeySPKI: pem})
+		}))
+	t.Cleanup(s.Close)
+	useServer(t, s.URL)
+	o := signedAt(t, "creator.test", at(t, "2026-08-31T12:00:00Z"), c)
+
+	const callers = 16
+	start := make(chan struct{})
+	statuses := make(chan SignatureStatus, callers)
+	var wg sync.WaitGroup
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			statuses <- o.SignatureStatusFromDomain("https")
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(statuses)
+	for status := range statuses {
+		if status != SignatureValid {
+			t.Fatalf("every caller should get the key, got %v", status)
+		}
+	}
+	if got := atomic.LoadInt32(&requests); got != 1 {
+		t.Fatalf("%d callers arriving together should make one request, got %d", callers, got)
 	}
 }

@@ -159,15 +159,24 @@ start of its period until the next key starts, so a key the creator answers
 with at two minutes was in force at every minute between them, and an OWID
 dated inside a confirmed span is verified without a request whichever minute it
 carries. One dated outside every span is asked about, which widens the span
-when the same key comes back. One dated within fifteen minutes of now, or
-later, is asked about every time and never held, because a creator whose clock
-differs from this one's may have read that minute as its present rather than as
-the minute named. Live identifiers therefore cost one request per minute per
-creator, as they always did, and older ones cost none. At most 1024 keys are
-held across every creator before the cache is emptied and filled again, and
-`ClearKeyCache` empties it on demand, which is how a long running process drops
-a key it has learned it should no longer trust. A key that could not be fetched
-is not held, so the next verification asks again.
+when the same key comes back. The request asks the creator for the JSON form of
+the answer, which carries the moments the key is valid from and to as well as
+the key, so a creator built on this package has the whole span held from one
+answer and an OWID dated anywhere in it is verified without a request whatever
+the clock drift. A creator that answers the PEM alone is read as before. A
+signature that does not verify under the key selected, where the OWID is dated
+within fifteen minutes of the edge of that key's span, is checked against the
+neighbouring key before it is reported as not matching, because a creator's
+signing machines may not agree with its schedule to the minute. One dated
+within fifteen minutes of now, or later, is asked about every time and never
+held, because a creator whose clock differs from this one's may have read that
+minute as its present rather than as the minute named. Live identifiers
+therefore cost one request per minute per creator, as they always did, and
+older ones cost none. At most 1024 keys are held across every creator before
+the cache is emptied and filled again, and `ClearKeyCache` empties it on
+demand, which is how a long running process drops a key it has learned it
+should no longer trust. A key that could not be fetched is not held, so the
+next verification asks again.
 
 The false that `Verify` returns alongside an error does not mean the signature
 is wrong, because an outage produces the same pair as a forgery does. Where
@@ -377,6 +386,17 @@ in force now when no date is sent, and a date later than now read as now. A
 key's start is the schedule position, not the moment its material was
 generated, because a creator may generate many periods in one run and a key
 that has not started has signed nothing.
+
+The public key end point answers with a `PublicKeyResponse` as JSON, being
+the key as `publicKeySPKI` together with `validFrom` and `validTo`, the UTC
+moments the key came into force and the next key starts. `DatedPublicKeyStore`
+knows both, and a store of your own states them by implementing
+`PublicKeyPeriodStore` as well. `validTo` is null for the last key in the
+schedule and both are null for a single key with no schedule. The answer is
+checked with `ValidatePublicKeyResponse` before it is sent, so a key that
+cannot be read or a schedule that contradicts itself is a server error rather
+than a bad answer. The PEM alone as text is no longer a valid answer, and a
+client that receives it reports the key as one it cannot read.
 
 ### Requiring authentication (optional)
 

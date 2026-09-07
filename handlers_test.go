@@ -163,8 +163,8 @@ func TestPublicKeyHandlerSPKI(t *testing.T) {
 		testDomain,
 		"/owid/api/v3/public-key",
 		q)
-	v := decompressAsString(t, rr)
-	if strings.HasPrefix(v, "-----BEGIN PUBLIC KEY-----") == false {
+	v := publicKeyAnswer(t, rr)
+	if strings.HasPrefix(v.PublicKeySPKI, "-----BEGIN PUBLIC KEY-----") == false {
 		t.Error("handler did not return a PEM public key")
 		return
 	}
@@ -172,8 +172,11 @@ func TestPublicKeyHandlerSPKI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != spki {
+	if v.PublicKeySPKI != spki {
 		t.Error("returned key does not match the creator SPKI key")
+	}
+	if v.ValidFrom != nil || v.ValidTo != nil {
+		t.Error("a single key with no schedule should be stated with no moments")
 	}
 }
 
@@ -196,12 +199,12 @@ func TestPublicKeyHandlerPKCS(t *testing.T) {
 		testDomain,
 		"/owid/api/v3/public-key",
 		q)
-	v := decompressAsString(t, rr)
-	if strings.HasPrefix(v, "-----BEGIN PUBLIC KEY-----") == false {
+	v := publicKeyAnswer(t, rr)
+	if strings.HasPrefix(v.PublicKeySPKI, "-----BEGIN PUBLIC KEY-----") == false {
 		t.Error("handler did not return a PEM public key")
 		return
 	}
-	if v != c.publicKey {
+	if v.PublicKeySPKI != c.publicKey {
 		t.Error("returned key does not match the creator public key")
 	}
 }
@@ -238,10 +241,13 @@ func TestPublicKeyHandlerWithDateSelectsKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	oldKey, newKey := freshPem(t), freshPem(t)
+	oldStart := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	newStart := time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC)
 	s.SetPublicKeyStore(NewDatedPublicKeyStore(map[string][]DatedKey{
 		testDomain: {
-			{StartsAt: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), PublicKey: "KEY-OLD"},
-			{StartsAt: time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC), PublicKey: "KEY-NEW"},
+			{StartsAt: oldStart, PublicKey: oldKey},
+			{StartsAt: newStart, PublicKey: newKey},
 		},
 	}))
 	minutes := uint32(
@@ -250,8 +256,63 @@ func TestPublicKeyHandlerWithDateSelectsKey(t *testing.T) {
 	q.Set("format", "pkcs")
 	q.Set("date", strconv.FormatUint(uint64(minutes), 10))
 	rr := send(t, HandlerPublicKey(s), testDomain, "/owid/api/v3/public-key", q)
-	if v := decompressAsString(t, rr); v != "KEY-OLD" {
-		t.Errorf("got %q, want KEY-OLD", v)
+	v := publicKeyAnswer(t, rr)
+	if v.PublicKeySPKI != oldKey {
+		t.Errorf("got %q, want the old key", v.PublicKeySPKI)
+	}
+	if v.ValidFrom == nil || !v.ValidFrom.Equal(oldStart) || v.ValidTo == nil || !v.ValidTo.Equal(newStart) {
+		t.Errorf("the old key should be stated valid from its start to the new key's start, got %+v", v)
+	}
+	// The last key of the schedule has no end.
+	q.Set("date", strconv.FormatUint(uint64(uint32(
+		time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC).Sub(ioDateBase).Minutes())), 10))
+	rr = send(t, HandlerPublicKey(s), testDomain, "/owid/api/v3/public-key", q)
+	v = publicKeyAnswer(t, rr)
+	if v.PublicKeySPKI != newKey || v.ValidFrom == nil || !v.ValidFrom.Equal(newStart) || v.ValidTo != nil {
+		t.Errorf("the last key should be stated valid from its start with no end, got %+v", v)
+	}
+}
+
+// freshPem is the public key of a newly made key pair, in PEM form.
+func freshPem(t *testing.T) string {
+	t.Helper()
+	c, err := NewCrypto()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pem, err := c.getSubjectPublicKeyInfo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pem
+}
+
+// publicKeyAnswer reads the JSON body of a public key response.
+func publicKeyAnswer(t *testing.T, rr *httptest.ResponseRecorder) PublicKeyResponse {
+	t.Helper()
+	var v PublicKeyResponse
+	if err := json.Unmarshal([]byte(decompressAsString(t, rr)), &v); err != nil {
+		t.Fatalf("the answer should be the JSON form: %v", err)
+	}
+	return v
+}
+
+// TestPublicKeyHandlerRefusesToAnswerWithAKeyItCannotRead checks that a store
+// holding something that is not a public key is reported as a server error
+// rather than passed to clients as an answer.
+func TestPublicKeyHandlerRefusesToAnswerWithAKeyItCannotRead(t *testing.T) {
+	s, err := getServices()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetPublicKeyStore(NewDatedPublicKeyStore(map[string][]DatedKey{
+		testDomain: {{StartsAt: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), PublicKey: "KEY-OLD"}},
+	}))
+	q := url.Values{}
+	q.Set("format", "pkcs")
+	rr := sendRaw(t, HandlerPublicKey(s), testDomain, "/owid/api/v3/public-key", q)
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("a key that cannot be read should be a server error, got %d", rr.Code)
 	}
 }
 
@@ -526,8 +587,8 @@ func TestPublicKeyHandlerAuthorizerAllows(t *testing.T) {
 		testDomain,
 		"/owid/api/v3/public-key",
 		q)
-	v := decompressAsString(t, rr)
-	if strings.HasPrefix(v, "-----BEGIN PUBLIC KEY-----") == false {
+	v := publicKeyAnswer(t, rr)
+	if strings.HasPrefix(v.PublicKeySPKI, "-----BEGIN PUBLIC KEY-----") == false {
 		t.Error("handler did not return a PEM public key")
 	}
 }

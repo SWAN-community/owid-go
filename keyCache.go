@@ -36,92 +36,121 @@ const keyFetchTimeout = 10 * time.Second
 const maximumCachedKeys = 1024
 
 // clockDriftAllowanceMinutes is how far a creator's clock may run ahead of or
-// behind this one's. A minute closer to now than this, or later, is asked
-// about rather than served from the cache, and is not held.
+// behind this one's.
 //
-// A creator reads a date later than its own now as now, and answers with the
-// key in force now. Within this window this process cannot tell whether the
-// creator read the minute as its past or as its present, so the answer says
-// nothing certain about the minute. An identifier signed just after a
-// rotation by a creator whose clock runs ahead would otherwise be served the
-// old key from a span confirmed up to now, and would read as not matching
-// until this clock caught up. Identifiers dated within the window are asked
-// about once per minute per creator, as they always were, and every older
-// identifier is served from the spans.
+// It is used in two places. A creator that does not state the span of the key
+// it answers with reads a date later than its own now as now, so within this
+// window of now this process cannot tell whether the creator read the minute
+// as its past or as its present, and nothing learned from such an answer is
+// held or served. And a creator's signing machines may not agree with the
+// creator's own schedule to the minute, so an identifier dated within this
+// window of a key's edge that does not verify under that key is checked
+// against the neighbouring key before it is reported as not matching.
 const clockDriftAllowanceMinutes = 15
 
-// heldKey is one key a creator has answered with, and the span of minutes
-// the creator has confirmed it was in force for.
+// heldKey is one key a creator has answered with, and the span of minutes the
+// key is known to cover.
 //
-// A creator's key is in force from the start of its period until the next
-// key starts, so a key the creator confirms at two minutes was in force at
-// every minute between them. The span grows as the creator confirms the same
-// key for more minutes, and an identifier dated inside it is verified without
-// a request.
+// A creator's key is in force from the start of its period until the next key
+// starts, so a key the creator confirms at two minutes was in force at every
+// minute between them. Where the creator stated the span in its answer the
+// span is explicit and complete, and an identifier dated anywhere inside it
+// is verified without a request. Otherwise the span grows as the creator
+// confirms the same key for more minutes.
 type heldKey struct {
-	pem   string // The key in PEM form, as the creator served it
-	first uint32 // The earliest minute the creator has confirmed the key for
-	last  uint32 // The latest minute the creator has confirmed the key for
+	pem      string // The key in PEM form, as the creator served it
+	first    uint32 // The earliest minute the key is known to cover
+	last     uint32 // The latest minute the key is known to cover
+	explicit bool   // Whether the creator stated the whole span itself
 }
 
-// covers says whether the minute lies within the confirmed span.
+// covers says whether the minute lies within the known span.
 func (k *heldKey) covers(minute uint32) bool {
 	return k.first <= minute && minute <= k.last
 }
 
+// keyAnswer is what the cache or a fetch answers with: the key, and where it
+// is known, the span of minutes the key covers, so that a caller can tell
+// whether the identifier it is checking sits near the edge of the span.
+type keyAnswer struct {
+	pem   string
+	first uint32
+	last  uint32
+	known bool // Whether first and last say anything
+}
+
 // keyCache holds keys already fetched, by the creator's key end point, which
 // is the key URL without its date. Each end point holds the keys the creator
-// has answered with, each with the span of minutes the creator has confirmed
-// it for.
+// has answered with, each with the span of minutes it is known to cover.
 //
 // The key URL carries the date of the identifier being verified, in minutes,
-// and a creator's key changes on the order of a week. Keyed by the whole URL,
-// as this cache once was, two identifiers signed a minute apart never shared
-// an entry, so a hundred identifiers over a hundred minutes made a hundred
-// requests for one key. Keyed by end point and span, an identifier dated
-// between two minutes the creator has already answered for is verified
-// without a request. Only a key that arrived is held; a failure is asked
-// again next time.
+// and a creator's key changes on the order of a week. Keyed by end point and span rather than by the whole URL, an identifier dated
+// inside a span the creator has stated or confirmed is verified without a
+// request. Only a key that arrived is held; a failure is asked again next
+// time.
 var keyCache = struct {
 	sync.Mutex
 	held  map[string][]*heldKey
 	count int // How many keys are held across every end point
 }{held: map[string][]*heldKey{}}
 
-// cachedKey returns the key held for the URL, if the creator has confirmed
-// one for the minute the URL names.
-func cachedKey(url string) (string, bool) {
-	endPoint, minute, cacheable := endPointAndMinute(url)
-	if !cacheable {
-		return "", false
+// cachedKey returns the key held for the URL, if one is known to cover the
+// minute the URL names.
+func cachedKey(url string) (keyAnswer, bool) {
+	endPoint, minute, dated, recent := endPointAndMinute(url)
+	if !dated {
+		return keyAnswer{}, false
 	}
 	keyCache.Lock()
 	defer keyCache.Unlock()
 	for _, key := range keyCache.held[endPoint] {
-		if key.covers(minute) {
-			return key.pem, true
+		// A minute within the drift allowance of now is only served where
+		// the creator itself stated the span, because a span confirmed
+		// minute by minute says nothing certain about such a minute.
+		if key.covers(minute) && (key.explicit || !recent) {
+			return keyAnswer{pem: key.pem, first: key.first, last: key.last, known: true}, true
 		}
 	}
-	return "", false
+	return keyAnswer{}, false
 }
 
-// rememberKey records that the creator answered the URL with the key.
+// rememberKey records the creator's answer to the URL, being the key and,
+// where the creator stated it in its JSON answer, the span the key covers as
+// the minute it came into force and the minute the next key starts. It
+// returns the key together with the span it is now known to cover.
 //
-// A key already held for the end point has its span widened to take in the
-// minute. A key not held before is added, emptying the cache first when it is
-// full, because the cache must not grow on the input of whoever presents the
-// identifiers.
-func rememberKey(url string, pem string) {
-	endPoint, minute, cacheable := endPointAndMinute(url)
-	if !cacheable {
-		return
+// With both the start and the end the whole span is held as the creator's
+// own statement. With the start alone the key is held from the start up to
+// the drift allowance behind now, because no later key can have started
+// before then. With neither the minute asked about is held on its own, as
+// long as it is not within the drift allowance of now. A key already held
+// for the end point has its span widened to take in the new one. A key not
+// held before is added, emptying the cache first when it is full, because
+// the cache must not grow on the input of whoever presents the identifiers.
+func rememberKey(url string, pem string, start *uint32, end *uint32) keyAnswer {
+	endPoint, minute, dated, recent := endPointAndMinute(url)
+	first, last, explicit, hold := spanToHold(minute, dated, recent, start, end)
+	if !hold {
+		return keyAnswer{pem: pem}
 	}
 	keyCache.Lock()
 	defer keyCache.Unlock()
 	keys := keyCache.held[endPoint]
 	for _, key := range keys {
-		if key.pem == pem && widen(keys, key, minute) {
-			return
+		if key.pem == pem {
+			if widen(keys, key, first, last) {
+				key.explicit = key.explicit || explicit
+				return keyAnswer{pem: pem, first: key.first, last: key.last, known: true}
+			}
+			// The creator has answered with another key inside this span
+			// before, which it does not do unless it went back to a key it
+			// had left. Nothing more is held about this key.
+			return keyAnswer{pem: pem}
+		}
+	}
+	for _, other := range keys {
+		if other.last >= first && other.first <= last {
+			return keyAnswer{pem: pem}
 		}
 	}
 	if keyCache.count >= maximumCachedKeys {
@@ -130,66 +159,126 @@ func rememberKey(url string, pem string) {
 		keys = nil
 	}
 	keyCache.held[endPoint] = append(keys,
-		&heldKey{pem: pem, first: minute, last: minute})
+		&heldKey{pem: pem, first: first, last: last, explicit: explicit})
 	keyCache.count++
+	return keyAnswer{pem: pem, first: first, last: last, known: true}
 }
 
-// widen widens the span of a held key to take in the minute, and says
-// whether the minute is now within it.
+// spanToHold works out the span to hold a key against from the creator's
+// answer, and whether anything is to be held at all. See rememberKey.
+func spanToHold(minute uint32, dated bool, recent bool, start *uint32, end *uint32) (uint32, uint32, bool, bool) {
+	if start != nil && end != nil {
+		if *end <= *start {
+			// A span that ends before it starts is not a statement about
+			// anything, so it is read as if the end had not been given.
+			return spanToHold(minute, dated, recent, start, nil)
+		}
+		return *start, *end - 1, true, true
+	}
+	now := minutesSinceBase(time.Now().UTC())
+	if start != nil {
+		last := *start
+		if now >= clockDriftAllowanceMinutes && now-clockDriftAllowanceMinutes > last {
+			last = now - clockDriftAllowanceMinutes
+		}
+		return *start, last, false, true
+	}
+	if dated && !recent {
+		return minute, minute, false, true
+	}
+	return 0, 0, false, false
+}
+
+// widen widens the span of a held key to take in the span given, and says
+// whether it did.
 //
 // The span is not widened across a minute the creator has answered with
 // another key for, because that would mean the creator had gone back to a
 // key it had left, and the minutes between the two spans are then not this
-// key's to claim. The key is held again as a separate span instead.
-func widen(keys []*heldKey, key *heldKey, minute uint32) bool {
-	if key.covers(minute) {
-		return true
+// key's to claim.
+func widen(keys []*heldKey, key *heldKey, first uint32, last uint32) bool {
+	if first > key.first {
+		first = key.first
 	}
-	from, to := key.first, key.last
-	if minute < from {
-		from = minute
-	}
-	if minute > to {
-		to = minute
+	if last < key.last {
+		last = key.last
 	}
 	for _, other := range keys {
-		if other != key && other.last > from && other.first < to {
+		if other != key && other.last >= first && other.first <= last {
 			return false
 		}
 	}
-	if minute < key.first {
-		key.first = minute
-	} else {
-		key.last = minute
-	}
+	key.first, key.last = first, last
 	return true
 }
 
-// endPointAndMinute splits a key URL into the end point being asked, which
-// is the URL without its query, and the minute the cache reads it as asking
-// about. The last result is false where the cache must not be used for the
-// request.
-//
-// The minute is the date parameter where the URL carries one and it is at
-// least clockDriftAllowanceMinutes behind now. A request without a date asks
-// for the key in force now, and one dated within the allowance, or later, may
-// be read by the creator as its present rather than as the minute named, so
-// neither is served from the cache nor held in it.
-func endPointAndMinute(url string) (string, uint32, bool) {
+// endPointAndMinute splits a key URL into the end point being asked, which is
+// the URL without its query, and the minute it asks about. The third result
+// is false where the URL names no minute, and the fourth is true where the
+// minute is within the drift allowance of now or later, which is a minute a
+// creator that does not state its spans may have read as its present rather
+// than as the minute named.
+func endPointAndMinute(url string) (string, uint32, bool, bool) {
 	now := minutesSinceBase(time.Now().UTC())
 	endPoint, query, _ := strings.Cut(url, "?")
 	for _, pair := range strings.Split(query, "&") {
 		if strings.HasPrefix(pair, "date=") {
 			minute, err := strconv.ParseUint(
 				strings.TrimPrefix(pair, "date="), 10, 32)
-			if err != nil || now < clockDriftAllowanceMinutes ||
-				uint32(minute) > now-clockDriftAllowanceMinutes {
-				return endPoint, 0, false
+			if err != nil {
+				return endPoint, 0, false, false
 			}
-			return endPoint, uint32(minute), true
+			recent := now < clockDriftAllowanceMinutes ||
+				uint32(minute) > now-clockDriftAllowanceMinutes
+			return endPoint, uint32(minute), true, recent
 		}
 	}
-	return endPoint, 0, false
+	return endPoint, 0, false, false
+}
+
+// inFlightKey is one fetch under way, shared between the caller making it and
+// every caller that asked for the same URL while it ran, so that callers
+// arriving together make one request between them rather than one each.
+type inFlightKey struct {
+	done   chan struct{} // Closed once the fetch has ended
+	answer keyAnswer
+	err    error
+}
+
+// inFlight holds the fetches under way, by the URL asked for. An entry is
+// removed when its fetch ends, whatever the outcome, so a failure is never
+// handed to a later caller.
+var inFlight = struct {
+	sync.Mutex
+	fetches map[string]*inFlightKey
+}{fetches: map[string]*inFlightKey{}}
+
+// shareFetch returns the fetch under way for the URL and false, or registers
+// a new one and returns it with true, meaning the caller is the one that
+// performs the request and must call finish.
+func shareFetch(url string) (*inFlightKey, bool) {
+	inFlight.Lock()
+	defer inFlight.Unlock()
+	if fetch, under := inFlight.fetches[url]; under {
+		return fetch, false
+	}
+	fetch := &inFlightKey{done: make(chan struct{})}
+	inFlight.fetches[url] = fetch
+	return fetch, true
+}
+
+// finish records the outcome of the fetch and wakes every caller waiting on
+// it. Only this fetch is removed from those under way, never one that
+// replaced it after the cache was emptied.
+func (f *inFlightKey) finish(url string, answer keyAnswer, err error) {
+	inFlight.Lock()
+	if inFlight.fetches[url] == f {
+		delete(inFlight.fetches, url)
+	}
+	inFlight.Unlock()
+	f.answer = answer
+	f.err = err
+	close(f.done)
 }
 
 // cachedKeyCount is how many keys the cache holds, for the tests.
@@ -206,7 +295,13 @@ func cachedKeyCount() int {
 // from a known state.
 func ClearKeyCache() {
 	keyCache.Lock()
-	defer keyCache.Unlock()
 	keyCache.held = map[string][]*heldKey{}
 	keyCache.count = 0
+	keyCache.Unlock()
+	// The fetches under way are forgotten too, so the next caller for any
+	// key starts a request of its own. A fetch already running is not
+	// stopped, and the callers waiting on it still receive its answer.
+	inFlight.Lock()
+	inFlight.fetches = map[string]*inFlightKey{}
+	inFlight.Unlock()
 }
