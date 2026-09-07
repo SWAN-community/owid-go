@@ -18,6 +18,7 @@ package owid
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -182,7 +183,8 @@ func TestAKeyIsNeverServedForAMinuteOutsideItsConfirmedSpan(t *testing.T) {
 // clock drift allowance of now, or later, is asked about every time and never
 // held, because a creator whose clock differs from this one's may have read it
 // as its present rather than as the minute named, and that a minute beyond
-// the allowance is held as usual. Live identifiers therefore cost one request per minute per creator and older ones cost none.
+// the allowance is held as usual. Live identifiers from a creator that states
+// no span therefore cost one request per minute and older ones cost none.
 func TestAMinuteWithinTheDriftAllowanceIsNotHeld(t *testing.T) {
 	k := newSpanlessKeyServer(t)
 	useServer(t, k.server.URL)
@@ -374,7 +376,7 @@ func TestASignatureFailingNearTheEdgeOfASpanIsCheckedAgainstTheNeighbour(t *test
 		t.Fatalf("an identifier well inside the later key's span signed with the earlier key should not verify, got %v", status)
 	}
 	if requests != 2 {
-		t.Fatalf("the neighbouring minutes lie inside the spans already held, so nothing should be asked, got %d requests", requests)
+		t.Fatalf("the identifier is further from every edge than clocks may differ, so nothing should be asked, got %d requests", requests)
 	}
 	// The boolean form agrees.
 	if valid, err := late.Verify("https"); err != nil || !valid {
@@ -450,6 +452,139 @@ func TestTheClientReadsWhatTheHandlerAnswers(t *testing.T) {
 	forged := signedAt(t, "creator.test", rotation.Add(3*24*time.Hour), next)
 	if status := forged.SignatureStatusFromDomain("https"); status != SignatureInvalid {
 		t.Fatalf("an identifier signed with a key not in force at its date should not verify, got %v", status)
+	}
+}
+
+// keyPair is a new key pair and its public key in PEM form.
+func keyPair(t *testing.T) (*Crypto, string) {
+	t.Helper()
+	c, err := NewCrypto()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pem, err := c.getSubjectPublicKeyInfo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c, pem
+}
+
+// scheduleOfTwo stands in for a creator with two keys, the first in force
+// from start until the rotation and the second from the rotation until end,
+// or until further notice where end is nil. It records the date parameter of
+// every request.
+func scheduleOfTwo(t *testing.T, firstPem string, secondPem string, start time.Time, rotation time.Time, end *time.Time) (*httptest.Server, *[]string) {
+	t.Helper()
+	asked := &[]string{}
+	s := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			d := r.URL.Query().Get("date")
+			*asked = append(*asked, d)
+			m, err := strconv.ParseUint(d, 10, 32)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			moment := ioDateBase.Add(time.Duration(m) * time.Minute)
+			if moment.Before(rotation) {
+				writeKeyAnswer(t, w, true, firstPem, start, &rotation, moment)
+				return
+			}
+			writeKeyAnswer(t, w, true, secondPem, rotation, end, moment)
+		}))
+	t.Cleanup(s.Close)
+	return s, asked
+}
+
+// TestTheNeighbourIsAskedForByTheMinuteJustBeyondTheEdge checks that the
+// neighbouring key is asked for by the minute just beyond the edge of the
+// span the creator stated, not by a minute a fixed distance from the
+// identifier, so a key in force for less than the drift allowance is still
+// the one tried.
+func TestTheNeighbourIsAskedForByTheMinuteJustBeyondTheEdge(t *testing.T) {
+	first, firstPem := keyPair(t)
+	_, secondPem := keyPair(t)
+	start := at(t, "2026-08-24T00:00:00Z")
+	rotation := at(t, "2026-08-31T00:00:00Z")
+	end := at(t, "2026-09-07T00:00:00Z")
+	s, asked := scheduleOfTwo(t, firstPem, secondPem, start, rotation, &end)
+	useServer(t, s.URL)
+
+	late := signedAt(t, "creator.test", rotation.Add(5*time.Minute), first)
+	if status := late.SignatureStatusFromDomain("https"); status != SignatureValid {
+		t.Fatalf("an identifier signed with the earlier key just after the rotation should verify, got %v", status)
+	}
+	own := minutesSinceBase(rotation) + 5
+	want := []string{
+		strconv.FormatUint(uint64(own), 10),
+		strconv.FormatUint(uint64(minutesSinceBase(rotation)-1), 10)}
+	if strings.Join(*asked, " ") != strings.Join(want, " ") {
+		t.Fatalf("the identifier's own minute and then the minute just before the span started should be asked for, got %v want %v", *asked, want)
+	}
+}
+
+// TestAKeyStatedWithoutAnEndHasNoLaterEdge checks that a key the creator
+// states a start for and no end is in force until further notice as far as
+// the creator has said, so a live identifier dated just after that start
+// which does not verify under it is checked against the key before it, even
+// though the cache holds the key only up to the drift allowance behind now.
+func TestAKeyStatedWithoutAnEndHasNoLaterEdge(t *testing.T) {
+	first, firstPem := keyPair(t)
+	_, secondPem := keyPair(t)
+	rotation := dateFromMinutes(minutesSinceBase(time.Now().UTC()) - 5)
+	start := rotation.Add(-7 * 24 * time.Hour)
+	s, asked := scheduleOfTwo(t, firstPem, secondPem, start, rotation, nil)
+	useServer(t, s.URL)
+
+	live := signedAt(t, "creator.test", rotation.Add(2*time.Minute), first)
+	if status := live.SignatureStatusFromDomain("https"); status != SignatureValid {
+		t.Fatalf("a live identifier signed with the key before the current one should verify, got %v", status)
+	}
+	if len(*asked) != 2 {
+		t.Fatalf("the current key and then the key before it should be asked for, got %d requests", len(*asked))
+	}
+}
+
+// TestAKeyTheCreatorSaysWasNotInForceLeavesTheSignatureUnjudged checks that
+// a creator whose own statement puts the identifier's date outside the span
+// of the key it answered with has said that key did not sign at that date,
+// so nothing verifying under it leaves the key unavailable rather than the
+// signature not matching. A forgery dated inside the span is still reported
+// as not matching.
+func TestAKeyTheCreatorSaysWasNotInForceLeavesTheSignatureUnjudged(t *testing.T) {
+	first, _ := keyPair(t)
+	_, secondPem := keyPair(t)
+	stranger, _ := keyPair(t)
+	rotation := at(t, "2026-08-31T00:00:00Z")
+	end := at(t, "2026-09-07T00:00:00Z")
+	// A creator that ignores the date asked about and answers with the
+	// current key and its span whatever the request. The answer is written
+	// directly, because the checks a creator built on this package applies
+	// before answering would refuse it for the moment asked about.
+	s := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(PublicKeyResponse{
+				PublicKeySPKI: secondPem, ValidFrom: &rotation, ValidTo: &end})
+		}))
+	t.Cleanup(s.Close)
+	useServer(t, s.URL)
+
+	earlier := signedAt(t, "creator.test", rotation.Add(-3*24*time.Hour), first)
+	if status := earlier.SignatureStatusFromDomain("https"); status != KeyUnavailable {
+		t.Fatalf("the key answered with was not in force at the identifier's date, so it should be KeyUnavailable, got %v", status)
+	}
+	valid, err := earlier.Verify("https")
+	if valid {
+		t.Fatal("the boolean form cannot say true for a key that was not in force")
+	}
+	var k *KeyFetchError
+	if !errors.As(err, &k) || k.Status != KeyUnavailable {
+		t.Fatalf("the boolean form should carry KeyUnavailable so its false does not read as a forgery, got %v", err)
+	}
+	forged := signedAt(t, "creator.test", rotation.Add(3*24*time.Hour), stranger)
+	if status := forged.SignatureStatusFromDomain("https"); status != SignatureInvalid {
+		t.Fatalf("a signature failing under the key in force at its date does not match, got %v", status)
 	}
 }
 

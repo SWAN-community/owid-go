@@ -153,38 +153,42 @@ valid, err := o.VerifyWithPublicKey(publicKeyPem)
 valid, err = o.Verify("https")
 ```
 
-Keys fetched from a creator are held in memory, by creator, each against the
-span of minutes the creator has confirmed it for. A key is in force from the
-start of its period until the next key starts, so a key the creator answers
-with at two minutes was in force at every minute between them, and an OWID
-dated inside a confirmed span is verified without a request whichever minute it
-carries. One dated outside every span is asked about, which widens the span
-when the same key comes back. The request asks the creator for the JSON form of
-the answer, which carries the moments the key is valid from and to as well as
-the key, so a creator built on this package has the whole span held from one
-answer and an OWID dated anywhere in it is verified without a request whatever
-the clock drift. A creator that answers the PEM alone is read as before. A
-signature that does not verify under the key selected, where the OWID is dated
-within fifteen minutes of the edge of that key's span, is checked against the
-neighbouring key before it is reported as not matching, because a creator's
-signing machines may not agree with its schedule to the minute. One dated
-within fifteen minutes of now, or later, is asked about every time and never
-held, because a creator whose clock differs from this one's may have read that
-minute as its present rather than as the minute named. Live identifiers
-therefore cost one request per minute per creator, as they always did, and
-older ones cost none. At most 1024 keys are held across every creator before
-the cache is emptied and filled again, and `ClearKeyCache` empties it on
-demand, which is how a long running process drops a key it has learned it
-should no longer trust. A key that could not be fetched is not held, so the
-next verification asks again.
+Keys fetched from a creator are held in memory. The request names the minute
+the OWID was created, so a creator that rotates its key answers with the key in
+force then, and the answer is the JSON form, which carries the moments the key
+is valid from and to as well as the key. A creator built on this package states
+both, so the whole span is held from one answer and an OWID dated anywhere in
+it is verified without a request whatever the clock drift. An answer that
+states the start alone is held from the start up to fifteen minutes behind now,
+because no later key can have started before then. An answer that states no
+span comes from a creator with one key and no schedule, and is held against the
+minute asked about and every minute between two such answers for the same key,
+but never for a minute within fifteen minutes of now, because a creator whose
+clock differs from this one's may have read that minute as its present rather
+than as the minute named. The PEM alone as text is not a valid answer and is
+refused. A signature that does not verify under the key selected, where the
+OWID is dated within fifteen minutes of an edge of the span the creator stated
+for that key, is checked against the key for the minute just beyond that edge
+before it is reported as not matching, because a creator's signing machines may
+not agree with its schedule to the minute. Where the creator's own statement
+puts the OWID's date outside the span of the key it answered with and nothing
+verifies, the key is reported as unavailable rather than the signature as not
+matching, because a key that was not in force proves nothing about the
+identifier. Live identifiers from a creator that states its spans cost one
+request per key, and older ones cost none. At most 1024 keys are held across
+every creator before the cache is emptied and filled again, and `ClearKeyCache`
+empties it on demand, which is how a long running process drops a key it has
+learned it should no longer trust. Callers arriving together for one key share
+one request, and a request that fails is not held.
 
 The false that `Verify` returns alongside an error does not mean the signature
 is wrong, because an outage produces the same pair as a forgery does. Where
 the difference matters, and it matters anywhere the answer decides whether to
 distrust an identifier, ask for the status instead. A key that could not be
-fetched is `KeyUnavailable`, one that arrived in a form this package cannot
-read is `InvalidKey`, and only `SignatureInvalid` means the identifier should
-be distrusted.
+fetched is `KeyUnavailable`, as is one the creator says was not in force at the
+OWID's date, one that arrived in a form this package cannot read is
+`InvalidKey`, and only `SignatureInvalid` means the identifier should be
+distrusted.
 
 ```go
 switch o.SignatureStatusFromDomain("https") {
@@ -367,7 +371,7 @@ registered for versions v1, v2 and v3.
 |----------|-------------|
 | /owid/register | HTML form to register the host domain as an OWID creator |
 | /owid/api/v3/creator | Returns the name, domain and public keys of the creator for the host domain |
-| /owid/api/v3/public-key | Returns the creator's public key in PEM form, with the `format` parameter set to `spki` or `pkcs`. An optional `date` parameter (minutes since 2020-01-01 UTC, the OWID Date encoding) returns the key that was current at that date, or `404` if it predates the oldest key |
+| /owid/api/v3/public-key | Returns the creator's public key as a JSON object carrying the key and the moments it is valid from and to, with the `format` parameter set to `spki` or `pkcs`. An optional `date` parameter (minutes since 2020-01-01 UTC, the OWID Date encoding) returns the key that was current at that date, or `404` if it predates the oldest key |
 | /owid/api/v3/verify | Verifies the OWID in the `owid` parameter and returns JSON in the form `{"valid":true}` |
 
 The same creator, public-key and verify paths are also registered under
@@ -395,8 +399,8 @@ knows both, and a store of your own states them by implementing
 schedule and both are null for a single key with no schedule. The answer is
 checked with `ValidatePublicKeyResponse` before it is sent, so a key that
 cannot be read or a schedule that contradicts itself is a server error rather
-than a bad answer. The PEM alone as text is no longer a valid answer, and a
-client that receives it reports the key as one it cannot read.
+than a bad answer. The PEM alone as text is not a valid answer, and a client
+that receives it reports the key as one it cannot read.
 
 ### Requiring authentication (optional)
 

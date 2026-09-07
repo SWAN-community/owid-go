@@ -17,6 +17,7 @@
 package owid
 
 import (
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -38,14 +39,15 @@ const maximumCachedKeys = 1024
 // clockDriftAllowanceMinutes is how far a creator's clock may run ahead of or
 // behind this one's.
 //
-// It is used in two places. A creator that does not state the span of the key
-// it answers with reads a date later than its own now as now, so within this
-// window of now this process cannot tell whether the creator read the minute
-// as its past or as its present, and nothing learned from such an answer is
-// held or served. And a creator's signing machines may not agree with the
-// creator's own schedule to the minute, so an identifier dated within this
-// window of a key's edge that does not verify under that key is checked
-// against the neighbouring key before it is reported as not matching.
+// It is used in two places. A creator that does not state the end of the span
+// of the key it answers with reads a date later than its own now as now, so
+// within this window of now this process cannot tell whether the creator read
+// the minute as its past or as its present, and nothing learned from such an
+// answer is held or served. And a creator's signing machines may not agree
+// with the creator's own schedule to the minute, so an identifier dated within
+// this window of an edge of the span the creator stated for a key that does
+// not verify under that key is checked against the key for the minute just
+// beyond that edge before it is reported as not matching.
 const clockDriftAllowanceMinutes = 15
 
 // heldKey is one key a creator has answered with, and the span of minutes the
@@ -62,6 +64,10 @@ type heldKey struct {
 	first    uint32 // The earliest minute the key is known to cover
 	last     uint32 // The latest minute the key is known to cover
 	explicit bool   // Whether the creator stated the whole span itself
+	// Whether the creator stated the start of the span and no end, so that
+	// as far as the creator has said the key is in force until further
+	// notice, whatever this cache holds it for.
+	openEnded bool
 }
 
 // covers says whether the minute lies within the known span.
@@ -69,14 +75,46 @@ func (k *heldKey) covers(minute uint32) bool {
 	return k.first <= minute && minute <= k.last
 }
 
-// keyAnswer is what the cache or a fetch answers with: the key, and where it
-// is known, the span of minutes the key covers, so that a caller can tell
-// whether the identifier it is checking sits near the edge of the span.
+// stated is the span the creator stated for the key, which is the whole held
+// span where the creator stated it, runs to the last minute there is where
+// the creator stated a start and no end, and is nothing where the creator
+// stated no span.
+func (k *heldKey) stated() keyAnswer {
+	if k.explicit {
+		return keyAnswer{pem: k.pem, first: k.first, last: k.last, known: true}
+	}
+	if k.openEnded {
+		return keyAnswer{pem: k.pem, first: k.first, last: math.MaxUint32, known: true}
+	}
+	return keyAnswer{pem: k.pem}
+}
+
+// keyAnswer is what the cache or a fetch answers with. The key, and where the
+// creator stated one, the span of minutes the creator says the key covers, so
+// that a caller can tell whether the identifier it is checking sits near an
+// edge of the span, or outside it altogether. A span stated with a start and
+// no end runs to the last minute there is.
 type keyAnswer struct {
 	pem   string
-	first uint32
-	last  uint32
-	known bool // Whether first and last say anything
+	first uint32 // The first minute the creator says the key covers
+	last  uint32 // The last minute the creator says the key covers
+	known bool   // Whether the creator stated a span at all
+}
+
+// covers says whether the minute lies within the stated span.
+func (a keyAnswer) covers(minute uint32) bool {
+	return a.known && a.first <= minute && minute <= a.last
+}
+
+// statedSpan is the span the creator stated in its answer. See heldKey.stated.
+func statedSpan(pem string, start *uint32, end *uint32) keyAnswer {
+	if start == nil {
+		return keyAnswer{pem: pem}
+	}
+	if end != nil && *end > *start {
+		return keyAnswer{pem: pem, first: *start, last: *end - 1, known: true}
+	}
+	return keyAnswer{pem: pem, first: *start, last: math.MaxUint32, known: true}
 }
 
 // keyCache holds keys already fetched, by the creator's key end point, which
@@ -95,7 +133,7 @@ var keyCache = struct {
 }{held: map[string][]*heldKey{}}
 
 // cachedKey returns the key held for the URL, if one is known to cover the
-// minute the URL names.
+// minute the URL names, with the span the creator stated for it.
 func cachedKey(url string) (keyAnswer, bool) {
 	endPoint, minute, dated, recent := endPointAndMinute(url)
 	if !dated {
@@ -108,7 +146,7 @@ func cachedKey(url string) (keyAnswer, bool) {
 		// the creator itself stated the span, because a span confirmed
 		// minute by minute says nothing certain about such a minute.
 		if key.covers(minute) && (key.explicit || !recent) {
-			return keyAnswer{pem: key.pem, first: key.first, last: key.last, known: true}, true
+			return key.stated(), true
 		}
 	}
 	return keyAnswer{}, false
@@ -117,7 +155,7 @@ func cachedKey(url string) (keyAnswer, bool) {
 // rememberKey records the creator's answer to the URL, being the key and,
 // where the creator stated it in its JSON answer, the span the key covers as
 // the minute it came into force and the minute the next key starts. It
-// returns the key together with the span it is now known to cover.
+// returns the key together with the span the creator stated for it.
 //
 // With both the start and the end the whole span is held as the creator's
 // own statement. With the start alone the key is held from the start up to
@@ -128,29 +166,31 @@ func cachedKey(url string) (keyAnswer, bool) {
 // held before is added, emptying the cache first when it is full, because
 // the cache must not grow on the input of whoever presents the identifiers.
 func rememberKey(url string, pem string, start *uint32, end *uint32) keyAnswer {
+	stated := statedSpan(pem, start, end)
 	endPoint, minute, dated, recent := endPointAndMinute(url)
-	first, last, explicit, hold := spanToHold(minute, dated, recent, start, end)
+	span, hold := spanToHold(minute, dated, recent, start, end)
 	if !hold {
-		return keyAnswer{pem: pem}
+		return stated
 	}
 	keyCache.Lock()
 	defer keyCache.Unlock()
 	keys := keyCache.held[endPoint]
 	for _, key := range keys {
 		if key.pem == pem {
-			if widen(keys, key, first, last) {
-				key.explicit = key.explicit || explicit
-				return keyAnswer{pem: pem, first: key.first, last: key.last, known: true}
+			if widen(keys, key, span.first, span.last) {
+				key.explicit = key.explicit || span.explicit
+				key.openEnded = !key.explicit && (key.openEnded || span.openEnded)
 			}
-			// The creator has answered with another key inside this span
-			// before, which it does not do unless it went back to a key it
-			// had left. Nothing more is held about this key.
-			return keyAnswer{pem: pem}
+			// Where the span was not widened the creator has answered with
+			// another key inside it before, which it does not do unless it
+			// went back to a key it had left, and nothing more is held
+			// about this key.
+			return stated
 		}
 	}
 	for _, other := range keys {
-		if other.last >= first && other.first <= last {
-			return keyAnswer{pem: pem}
+		if other.last >= span.first && other.first <= span.last {
+			return stated
 		}
 	}
 	if keyCache.count >= maximumCachedKeys {
@@ -158,22 +198,23 @@ func rememberKey(url string, pem string, start *uint32, end *uint32) keyAnswer {
 		keyCache.count = 0
 		keys = nil
 	}
-	keyCache.held[endPoint] = append(keys,
-		&heldKey{pem: pem, first: first, last: last, explicit: explicit})
+	span.pem = pem
+	keyCache.held[endPoint] = append(keys, &span)
 	keyCache.count++
-	return keyAnswer{pem: pem, first: first, last: last, known: true}
+	return stated
 }
 
 // spanToHold works out the span to hold a key against from the creator's
-// answer, and whether anything is to be held at all. See rememberKey.
-func spanToHold(minute uint32, dated bool, recent bool, start *uint32, end *uint32) (uint32, uint32, bool, bool) {
+// answer, and whether anything is to be held at all. See rememberKey. The
+// key itself is left for the caller to fill in.
+func spanToHold(minute uint32, dated bool, recent bool, start *uint32, end *uint32) (heldKey, bool) {
 	if start != nil && end != nil {
 		if *end <= *start {
 			// A span that ends before it starts is not a statement about
 			// anything, so it is read as if the end had not been given.
 			return spanToHold(minute, dated, recent, start, nil)
 		}
-		return *start, *end - 1, true, true
+		return heldKey{first: *start, last: *end - 1, explicit: true}, true
 	}
 	now := minutesSinceBase(time.Now().UTC())
 	if start != nil {
@@ -181,12 +222,12 @@ func spanToHold(minute uint32, dated bool, recent bool, start *uint32, end *uint
 		if now >= clockDriftAllowanceMinutes && now-clockDriftAllowanceMinutes > last {
 			last = now - clockDriftAllowanceMinutes
 		}
-		return *start, last, false, true
+		return heldKey{first: *start, last: last, openEnded: true}, true
 	}
 	if dated && !recent {
-		return minute, minute, false, true
+		return heldKey{first: minute, last: minute}, true
 	}
-	return 0, 0, false, false
+	return heldKey{}, false
 }
 
 // widen widens the span of a held key to take in the span given, and says

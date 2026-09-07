@@ -429,22 +429,19 @@ func TestARedirectIsNotFollowed(t *testing.T) {
 	if k == nil {
 		t.Fatal("the schedule should cover the date")
 	}
+	followed := false
 	elsewhere := httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
-			fmt.Fprint(w, k.pem)
+			followed = true
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(PublicKeyResponse{PublicKeySPKI: k.pem})
 		}))
 	defer elsewhere.Close()
-	followed := false
 	creator := httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
-			http.Redirect(w, r, elsewhere.URL+"/key.pem", http.StatusFound)
+			http.Redirect(w, r, elsewhere.URL+"/owid/api/v3/public-key", http.StatusFound)
 		}))
 	defer creator.Close()
-	elsewhere.Config.Handler = http.HandlerFunc(
-		func(w http.ResponseWriter, r *http.Request) {
-			followed = true
-			fmt.Fprint(w, k.pem)
-		})
 	useServer(t, creator.URL)
 
 	if got := o.SignatureStatusFromDomain("https"); got != KeyUnavailable {

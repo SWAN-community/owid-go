@@ -320,7 +320,7 @@ func (o *OWID) fetchPublicKey(scheme string) (string, error) {
 
 // fetchKeyAt returns the key the URL asks for, from the cache where a held key
 // is known to cover the minute asked about and otherwise from the creator,
-// together with the span the key is known to cover. The answer is the JSON
+// together with the span the creator stated for it. The answer is the JSON
 // form, which carries the moments the key is valid from and to as well as the
 // key, so the whole span is held from that one answer. An answer in any other
 // form, the PEM alone among them, is reported as a key that cannot be read.
@@ -383,34 +383,25 @@ func (o *OWID) requestKey(url string) (keyAnswer, error) {
 // signed with the key before it, and one dated just before may have been
 // signed with the key after. Where the signature does not verify under the
 // key selected and the OWID's minute is within the clock drift allowance of
-// the edge of the span that key is known to cover, the key for the minute
-// just beyond that edge is asked for and tried. A key already known to cover
-// the neighbouring minute is not asked for again, and a neighbour that turns
-// out to be the same key is not tried again. This costs at most two more
-// requests, and only for a signature that has already failed.
-func (o *OWID) neighbourVerifies(scheme string, tried keyAnswer, others []*OWID) bool {
-	if o.date.Before(ioDateBase) {
+// an edge of the span the creator stated for that key, the key for the
+// minute just beyond that edge is asked for and tried. A key already held
+// for that minute is not asked for again, and a neighbour that turns out to
+// be the same key is not tried again. A creator that stated no span has one
+// key and no schedule, so there is no neighbour to try. This costs at most
+// two more requests, and only for a signature that has already failed.
+func (o *OWID) neighbourVerifies(scheme string, minute uint32, tried keyAnswer, others []*OWID) bool {
+	if !tried.known {
 		return false
 	}
-	minute := int64(minutesSinceBase(o.date))
-	if tried.known && (uint32(minute) < tried.first || uint32(minute) > tried.last) {
-		// The key tried was never in force at the identifier's minute, so
-		// the identifier is not near an edge of that key's span. This is an
-		// undated request answered with the current key, or a creator whose
-		// answer did not cover the minute asked about, and the neighbours of
-		// the minute have nothing to do with the key tried.
-		return false
+	var beyond []uint32
+	if tried.first > 0 && nearEdge(minute, tried.first) {
+		beyond = append(beyond, tried.first-1)
 	}
-	for _, at := range []int64{
-		minute - clockDriftAllowanceMinutes,
-		minute + clockDriftAllowanceMinutes} {
-		if at < 0 || at > math.MaxUint32 {
-			continue
-		}
-		neighbour := uint32(at)
-		if tried.known && neighbour >= tried.first && neighbour <= tried.last {
-			continue
-		}
+	if tried.last < math.MaxUint32 && nearEdge(minute, tried.last) {
+		beyond = append(beyond, tried.last+1)
+	}
+	for _, at := range beyond {
+		neighbour := at
 		answer, err := o.fetchKeyAt(o.publicKeyURLAt(scheme, &neighbour))
 		if err != nil || answer.pem == tried.pem {
 			continue
@@ -422,13 +413,52 @@ func (o *OWID) neighbourVerifies(scheme string, tried keyAnswer, others []*OWID)
 	return false
 }
 
+// nearEdge says whether the minute is no further from the edge minute than
+// the clocks of a creator's signing machines are allowed to differ from its
+// schedule.
+func nearEdge(minute uint32, edge uint32) bool {
+	apart := edge - minute
+	if minute > edge {
+		apart = minute - edge
+	}
+	return apart <= clockDriftAllowanceMinutes
+}
+
+// errKeyNotInForce is the reason carried where the creator's own statement
+// puts the OWID's date outside the span of the key it answered with.
+var errKeyNotInForce = errors.New(
+	"states that the key it answered with was not in force at the OWID's " +
+		"date, so the signature could not be checked")
+
+// statusAfterKeyFailed is the answer once the signature has failed under the
+// key selected for the OWID's own minute. It is SignatureValid where the
+// neighbouring key verifies the signature, KeyUnavailable where the creator's
+// own statement puts the OWID's minute outside the span of the key it
+// answered with, because a key that was not in force at that minute proves
+// nothing about the identifier, and otherwise SignatureInvalid.
+func (o *OWID) statusAfterKeyFailed(scheme string, tried keyAnswer, others []*OWID) SignatureStatus {
+	if o.date.Before(ioDateBase) {
+		return SignatureInvalid
+	}
+	minute := minutesSinceBase(o.date)
+	if o.neighbourVerifies(scheme, minute, tried, others) {
+		return SignatureValid
+	}
+	if tried.known && !tried.covers(minute) {
+		return KeyUnavailable
+	}
+	return SignatureInvalid
+}
+
 // Verify this OWID and it's ancestors by fetching the public key from the
 // domain associated with the OWID.
 //
 // The false this returns alongside an error does not mean the signature is
-// wrong, because an outage produces the same pair as a forgery does. Use
-// SignatureStatusFromDomain where the difference matters, which is anywhere
-// the answer decides whether to distrust an identifier.
+// wrong, because an outage produces the same pair as a forgery does, and so
+// does a creator whose own statement puts the OWID's date outside the span of
+// the key it answered with. Use SignatureStatusFromDomain where the
+// difference matters, which is anywhere the answer decides whether to
+// distrust an identifier.
 func (o *OWID) Verify(scheme string) (bool, error) {
 	answer, err := o.fetchKeyAt(o.publicKeyURL(scheme))
 	if err != nil {
@@ -438,7 +468,16 @@ func (o *OWID) Verify(scheme string) (bool, error) {
 	if err != nil || valid {
 		return valid, err
 	}
-	return o.neighbourVerifies(scheme, answer, nil), nil
+	switch o.statusAfterKeyFailed(scheme, answer, nil) {
+	case SignatureValid:
+		return true, nil
+	case KeyUnavailable:
+		return false, &KeyFetchError{
+			Status: KeyUnavailable,
+			Domain: o.domain,
+			Err:    errKeyNotInForce}
+	}
+	return false, nil
 }
 
 // SignatureStatusFromDomain says whether the signature is genuine, or why that
@@ -446,10 +485,12 @@ func (o *OWID) Verify(scheme string) (bool, error) {
 // with the OWID.
 //
 // This is Verify answered with the status vocabulary. A key that cannot be
-// fetched is KeyUnavailable and one that arrives in a form this package cannot
-// read is InvalidKey. Neither is SignatureInvalid, because an outage or a
-// badly served key leaves the signature unjudged, and only SignatureInvalid
-// means the identifier should be distrusted.
+// fetched is KeyUnavailable, as is a key the creator says was not in force at
+// the OWID's date, under which nothing verifies. One that arrives in a form
+// this package cannot read is InvalidKey. None of these is SignatureInvalid,
+// because an outage, a badly served key or a key that was not in force leaves
+// the signature unjudged, and only SignatureInvalid means the identifier
+// should be distrusted.
 //
 // The Rust port answers the same question with Owid::verify_status.
 func (o *OWID) SignatureStatusFromDomain(
@@ -464,8 +505,8 @@ func (o *OWID) SignatureStatusFromDomain(
 		return KeyUnavailable
 	}
 	status := o.SignatureStatusWithPublicKey(answer.pem, others...)
-	if status == SignatureInvalid && o.neighbourVerifies(scheme, answer, others) {
-		return SignatureValid
+	if status == SignatureInvalid {
+		status = o.statusAfterKeyFailed(scheme, answer, others)
 	}
 	return status
 }
