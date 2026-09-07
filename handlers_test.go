@@ -54,7 +54,7 @@ func TestPublicKeyHandlerSPKI(t *testing.T) {
 		"/owid/api/v3/public-key",
 		q)
 	v := publicKeyAnswer(t, rr)
-	if strings.HasPrefix(v.PublicKeySPKI, "-----BEGIN PUBLIC KEY-----") == false {
+	if strings.HasPrefix(v.PublicKey, "-----BEGIN PUBLIC KEY-----") == false {
 		t.Error("handler did not return a PEM public key")
 		return
 	}
@@ -62,17 +62,20 @@ func TestPublicKeyHandlerSPKI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v.PublicKeySPKI != spki {
+	if v.PublicKey != spki {
 		t.Error("returned key does not match the creator SPKI key")
+	}
+	if v.Format != SpkiFormat {
+		t.Errorf("the answer should echo the format asked for, got %q", v.Format)
 	}
 	if v.ValidFrom != nil || v.ValidTo != nil {
 		t.Error("a single key with no schedule should be stated with no moments")
 	}
 }
 
-// TestPublicKeyHandlerPKCS verifies that the public key endpoint returns the
-// PEM encoded key in PKCS format.
-func TestPublicKeyHandlerPKCS(t *testing.T) {
+// TestPublicKeyHandlerDefaultsToSPKI verifies that a request naming no format
+// is answered in the one format defined, and that the answer says so.
+func TestPublicKeyHandlerDefaultsToSPKI(t *testing.T) {
 	s, err := getServices()
 	if err != nil {
 		t.Fatal(err)
@@ -81,46 +84,49 @@ func TestPublicKeyHandlerPKCS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	q := url.Values{}
-	q.Set("format", "pkcs")
 	rr := send(
 		t,
 		HandlerPublicKey(s),
 		testDomain,
 		"/owid/api/v3/public-key",
-		q)
+		url.Values{})
 	v := publicKeyAnswer(t, rr)
-	if strings.HasPrefix(v.PublicKeySPKI, "-----BEGIN PUBLIC KEY-----") == false {
-		t.Error("handler did not return a PEM public key")
-		return
+	if v.Format != SpkiFormat {
+		t.Errorf("a request naming no format should be answered in spki, got %q", v.Format)
 	}
-	if v.PublicKeySPKI != c.publicKey {
-		t.Error("returned key does not match the creator public key")
+	spki, err := c.SubjectPublicKeyInfo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.PublicKey != spki {
+		t.Error("returned key does not match the creator SPKI key")
 	}
 }
 
-// TestPublicKeyHandlerInvalidFormat verifies that the public key endpoint
-// rejects an unknown format parameter. The current implementation returns
-// status 500 rather than 400 for a bad format value. This test documents
-// that behavior.
-func TestPublicKeyHandlerInvalidFormat(t *testing.T) {
+// TestPublicKeyHandlerRefusesAnotherFormat verifies that the public key end
+// point answers 400 to a format it does not serve, pkcs among them, rather
+// than answering in an encoding the caller did not ask for.
+func TestPublicKeyHandlerRefusesAnotherFormat(t *testing.T) {
 	s, err := getServices()
 	if err != nil {
 		t.Fatal(err)
 	}
-	q := url.Values{}
-	q.Set("format", "invalid")
-	rr := sendRaw(
-		t,
-		HandlerPublicKey(s),
-		testDomain,
-		"/owid/api/v3/public-key",
-		q)
-	if rr.Code != http.StatusInternalServerError {
-		t.Errorf(
-			"handler returned wrong status code: got %v want %v",
-			rr.Code,
-			http.StatusInternalServerError)
+	for _, format := range []string{"pkcs", "invalid"} {
+		q := url.Values{}
+		q.Set("format", format)
+		rr := sendRaw(
+			t,
+			HandlerPublicKey(s),
+			testDomain,
+			"/owid/api/v3/public-key",
+			q)
+		if rr.Code != http.StatusBadRequest {
+			t.Errorf(
+				"format %q should be refused with %v, got %v",
+				format,
+				http.StatusBadRequest,
+				rr.Code)
+		}
 	}
 }
 
@@ -143,12 +149,12 @@ func TestPublicKeyHandlerWithDateSelectsKey(t *testing.T) {
 	minutes := uint32(
 		time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC).Sub(ioDateBase).Minutes())
 	q := url.Values{}
-	q.Set("format", "pkcs")
+	q.Set("format", SpkiFormat)
 	q.Set("date", strconv.FormatUint(uint64(minutes), 10))
 	rr := send(t, HandlerPublicKey(s), testDomain, "/owid/api/v3/public-key", q)
 	v := publicKeyAnswer(t, rr)
-	if v.PublicKeySPKI != oldKey {
-		t.Errorf("got %q, want the old key", v.PublicKeySPKI)
+	if v.PublicKey != oldKey {
+		t.Errorf("got %q, want the old key", v.PublicKey)
 	}
 	if v.ValidFrom == nil || !v.ValidFrom.Equal(oldStart) || v.ValidTo == nil || !v.ValidTo.Equal(newStart) {
 		t.Errorf("the old key should be stated valid from its start to the new key's start, got %+v", v)
@@ -158,7 +164,7 @@ func TestPublicKeyHandlerWithDateSelectsKey(t *testing.T) {
 		time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC).Sub(ioDateBase).Minutes())), 10))
 	rr = send(t, HandlerPublicKey(s), testDomain, "/owid/api/v3/public-key", q)
 	v = publicKeyAnswer(t, rr)
-	if v.PublicKeySPKI != newKey || v.ValidFrom == nil || !v.ValidFrom.Equal(newStart) || v.ValidTo != nil {
+	if v.PublicKey != newKey || v.ValidFrom == nil || !v.ValidFrom.Equal(newStart) || v.ValidTo != nil {
 		t.Errorf("the last key should be stated valid from its start with no end, got %+v", v)
 	}
 }
@@ -199,7 +205,7 @@ func TestPublicKeyHandlerRefusesToAnswerWithAKeyItCannotRead(t *testing.T) {
 		testDomain: {{StartsAt: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), PublicKey: "KEY-OLD"}},
 	}))
 	q := url.Values{}
-	q.Set("format", "pkcs")
+	q.Set("format", SpkiFormat)
 	rr := sendRaw(t, HandlerPublicKey(s), testDomain, "/owid/api/v3/public-key", q)
 	if rr.Code != http.StatusInternalServerError {
 		t.Errorf("a key that cannot be read should be a server error, got %d", rr.Code)
@@ -219,7 +225,7 @@ func TestPublicKeyHandlerDateBeforeOldestReturns404(t *testing.T) {
 		},
 	}))
 	q := url.Values{}
-	q.Set("format", "pkcs")
+	q.Set("format", SpkiFormat)
 	q.Set("date", "1440") // 2020-01-02, before the only key
 	rr := sendRaw(t, HandlerPublicKey(s), testDomain, "/owid/api/v3/public-key", q)
 	if rr.Code != http.StatusNotFound {
@@ -235,7 +241,7 @@ func TestPublicKeyHandlerMalformedDateReturns400(t *testing.T) {
 		t.Fatal(err)
 	}
 	q := url.Values{}
-	q.Set("format", "pkcs")
+	q.Set("format", SpkiFormat)
 	q.Set("date", "notanumber")
 	rr := sendRaw(t, HandlerPublicKey(s), testDomain, "/owid/api/v3/public-key", q)
 	if rr.Code != http.StatusBadRequest {
@@ -431,7 +437,7 @@ func TestPublicKeyHandlerAuthorizerAllows(t *testing.T) {
 		"/owid/api/v3/public-key",
 		q)
 	v := publicKeyAnswer(t, rr)
-	if strings.HasPrefix(v.PublicKeySPKI, "-----BEGIN PUBLIC KEY-----") == false {
+	if strings.HasPrefix(v.PublicKey, "-----BEGIN PUBLIC KEY-----") == false {
 		t.Error("handler did not return a PEM public key")
 	}
 }

@@ -391,7 +391,7 @@ func TestFetchedKeyThatDidNotSignIsSignatureInvalid(t *testing.T) {
 	}
 	s := httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
-			_ = json.NewEncoder(w).Encode(PublicKeyResponse{PublicKeySPKI: other})
+			_ = json.NewEncoder(w).Encode(PublicKeyResponse{Format: SpkiFormat, PublicKey: other})
 		}))
 	defer s.Close()
 	useServer(t, s.URL)
@@ -434,7 +434,7 @@ func TestARedirectIsNotFollowed(t *testing.T) {
 		func(w http.ResponseWriter, r *http.Request) {
 			followed = true
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(PublicKeyResponse{PublicKeySPKI: k.pem})
+			_ = json.NewEncoder(w).Encode(PublicKeyResponse{Format: SpkiFormat, PublicKey: k.pem})
 		}))
 	defer elsewhere.Close()
 	creator := httptest.NewServer(http.HandlerFunc(

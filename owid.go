@@ -258,14 +258,14 @@ func (o *OWID) publicKeyURL(scheme string) string {
 
 // publicKeyURLAt is the URL of the creator's public key end point asking for
 // the key in force at the minute given, or for the key in force now where
-// the minute is nil.
+// the minute is nil, in SPKI form by name.
 func (o *OWID) publicKeyURLAt(scheme string, minutes *uint32) string {
 	u := url.URL{
 		Scheme: scheme,
 		Host:   o.domain,
 		Path:   fmt.Sprintf("/owid/api/v%d/public-key", o.version)}
 	q := u.Query()
-	q.Set("format", "pkcs")
+	q.Set("format", SpkiFormat)
 	if minutes != nil {
 		q.Set("date", strconv.FormatUint(uint64(*minutes), 10))
 	}

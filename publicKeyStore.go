@@ -56,23 +56,29 @@ type PublicKeyPeriodStore interface {
 	GetPublicKeyPeriod(domain string, date *time.Time) (*KeyPeriod, error)
 }
 
+// SpkiFormat is the one encoding of the key this package reads and writes, a
+// Subject Public Key Info PEM. It is the value taken when a request names no
+// format.
+const SpkiFormat = "spki"
+
 // PublicKeyResponse is the JSON body of the public key end point. It carries
-// the key together with the moments it is valid from and to, in UTC, so a
-// client holds the key for the whole span from one answer rather than asking
-// again for every minute. ValidFrom is nil where the creator does not know
-// when the key started, and ValidTo is nil where no later key has been
-// scheduled. The PEM alone as text is not a valid answer.
+// the key, the encoding the key is in, and the moments it is valid from and
+// to, in UTC, so a client holds the key for the whole span from one answer
+// rather than asking again for every minute. ValidFrom is nil where the
+// creator does not know when the key started, and ValidTo is nil where no
+// later key has been scheduled. The PEM alone as text is not a valid answer.
 type PublicKeyResponse struct {
-	PublicKeySPKI string     `json:"publicKeySPKI"` // The public key in PEM form
-	ValidFrom     *time.Time `json:"validFrom"`     // UTC moment the key came into force
-	ValidTo       *time.Time `json:"validTo"`       // UTC moment the next key starts
+	Format    string     `json:"format"`    // The encoding of PublicKey, being the value the request asked for
+	PublicKey string     `json:"publicKey"` // The public key in the encoding Format names
+	ValidFrom *time.Time `json:"validFrom"` // UTC moment the key came into force
+	ValidTo   *time.Time `json:"validTo"`   // UTC moment the next key starts
 }
 
 // NewPublicKeyResponse is the answer for the key in force at the moment
 // asked about, with the span where the store knows it, checked before it is
 // returned so that a creator never sends an answer it would itself refuse.
 func NewPublicKeyResponse(pem string, period *KeyPeriod, asked time.Time) (PublicKeyResponse, error) {
-	response := PublicKeyResponse{PublicKeySPKI: pem}
+	response := PublicKeyResponse{Format: SpkiFormat, PublicKey: pem}
 	if period != nil {
 		from := period.StartsAt.UTC()
 		response.ValidFrom = &from
@@ -88,17 +94,21 @@ func NewPublicKeyResponse(pem string, period *KeyPeriod, asked time.Time) (Publi
 }
 
 // ValidatePublicKeyResponse checks a public key answer the way both the
-// creator that sends it and the client that reads it must. The key must be a
-// public key this package can read, a key valid to a moment must be valid
-// from an earlier one, and where the moment asked about is known the key
-// must have come into force by then and, if it has an end, not have ended.
-// A creator that fails this check has a fault in its schedule or its store,
-// and answering with a 500 shows it up rather than passing it on.
+// creator that sends it and the client that reads it must. The format must be
+// the one this package reads, or absent, and the key must be a public key in
+// it, a key valid to a moment must be valid from an earlier one, and where
+// the moment asked about is known the key must have come into force by then
+// and, if it has an end, not have ended. A creator that fails this check has
+// a fault in its schedule or its store, and answering with a 500 shows it up
+// rather than passing it on.
 func ValidatePublicKeyResponse(response PublicKeyResponse, asked *time.Time) error {
-	if response.PublicKeySPKI == "" {
+	if response.Format != "" && response.Format != SpkiFormat {
+		return fmt.Errorf("the public key answer states a format this package does not read")
+	}
+	if response.PublicKey == "" {
 		return fmt.Errorf("the public key answer holds no key")
 	}
-	if _, err := NewCryptoVerifyOnly(response.PublicKeySPKI); err != nil {
+	if _, err := NewCryptoVerifyOnly(response.PublicKey); err != nil {
 		return fmt.Errorf("the public key answer holds a key that cannot be read: %w", err)
 	}
 	if response.ValidTo != nil {
@@ -133,7 +143,7 @@ func ReadPublicKeyResponse(body []byte) (string, *uint32, *uint32, error) {
 	if err := ValidatePublicKeyResponse(answer, nil); err != nil {
 		return "", nil, nil, err
 	}
-	return answer.PublicKeySPKI, minutesOf(answer.ValidFrom), minutesOf(answer.ValidTo), nil
+	return answer.PublicKey, minutesOf(answer.ValidFrom), minutesOf(answer.ValidTo), nil
 }
 
 // minutesOf is the moment as minutes since 2020-01-01 UTC, or nil where

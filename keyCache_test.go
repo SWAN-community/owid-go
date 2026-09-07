@@ -228,7 +228,7 @@ func TestTheKeyCacheIsBounded(t *testing.T) {
 				distinct[minute] = pem
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(PublicKeyResponse{PublicKeySPKI: pem})
+			_ = json.NewEncoder(w).Encode(PublicKeyResponse{Format: SpkiFormat, PublicKey: pem})
 		}))
 	t.Cleanup(s.Close)
 	useServer(t, s.URL)
@@ -565,7 +565,7 @@ func TestAKeyTheCreatorSaysWasNotInForceLeavesTheSignatureUnjudged(t *testing.T)
 		func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(PublicKeyResponse{
-				PublicKeySPKI: secondPem, ValidFrom: &rotation, ValidTo: &end})
+				Format: SpkiFormat, PublicKey: secondPem, ValidFrom: &rotation, ValidTo: &end})
 		}))
 	t.Cleanup(s.Close)
 	useServer(t, s.URL)
@@ -603,6 +603,23 @@ func TestAnAnswerThatIsNotTheJSONFormIsAKeyThatCannotBeRead(t *testing.T) {
 	}
 }
 
+// TestAnAnswerStatingAnotherFormatIsAKeyThatCannotBeRead checks that an
+// answer whose format is not the one this package reads is refused as a key
+// that cannot be read, whatever the key field holds.
+func TestAnAnswerStatingAnotherFormatIsAKeyThatCannotBeRead(t *testing.T) {
+	k := newKeyServer(t)
+	pem := k.schedule[0].pem
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(PublicKeyResponse{Format: "pkcs", PublicKey: pem})
+	}))
+	t.Cleanup(s.Close)
+	useServer(t, s.URL)
+	if status := fixtureIdentifier(t).SignatureStatusFromDomain("https"); status != InvalidKey {
+		t.Fatalf("an answer in another format should be reported as a key that cannot be read, got %v", status)
+	}
+}
+
 // TestAnAnswerWhoseSpanEndsBeforeItStartsIsRefused checks that a creator
 // whose schedule contradicts itself is refused by the client as well as by
 // the checks a creator built on this package applies before answering.
@@ -613,7 +630,7 @@ func TestAnAnswerWhoseSpanEndsBeforeItStartsIsRefused(t *testing.T) {
 	to := at(t, "2026-08-24T00:00:00Z")
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(PublicKeyResponse{PublicKeySPKI: pem, ValidFrom: &from, ValidTo: &to})
+		_ = json.NewEncoder(w).Encode(PublicKeyResponse{Format: SpkiFormat, PublicKey: pem, ValidFrom: &from, ValidTo: &to})
 	}))
 	t.Cleanup(s.Close)
 	useServer(t, s.URL)
@@ -652,7 +669,7 @@ func TestManyGoroutinesVerifyingOneIdentifierMakeOneRequest(t *testing.T) {
 			// request is under way.
 			time.Sleep(300 * time.Millisecond)
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(PublicKeyResponse{PublicKeySPKI: pem})
+			_ = json.NewEncoder(w).Encode(PublicKeyResponse{Format: SpkiFormat, PublicKey: pem})
 		}))
 	t.Cleanup(s.Close)
 	useServer(t, s.URL)

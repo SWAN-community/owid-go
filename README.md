@@ -369,7 +369,7 @@ registered for versions v1, v2 and v3.
 
 | Endpoint | Description |
 |----------|-------------|
-| /owid/api/v3/public-key | Returns the creator's public key as a JSON object carrying the key and the moments it is valid from and to, with the `format` parameter set to `spki` or `pkcs`. An optional `date` parameter (minutes since 2020-01-01 UTC, the OWID Date encoding) returns the key that was current at that date, or `404` if it predates the oldest key |
+| /owid/api/v3/public-key | Returns the creator's public key as a JSON object carrying the key and the moments it is valid from and to, The `format` parameter names the encoding of the key. The only value defined is `spki`, which a request without the parameter receives, and any other value is answered `400`. An optional `date` parameter (minutes since 2020-01-01 UTC, the OWID Date encoding) returns the key that was current at that date, or `404` if it predates the oldest key |
 | /owid/api/v3/verify | Verifies the OWID in the `owid` parameter and returns JSON in the form `{"valid":true}` |
 
 The same public-key and verify paths are also registered under
@@ -390,11 +390,15 @@ generated, because a creator may generate many periods in one run and a key
 that has not started has signed nothing.
 
 The public key end point answers with a `PublicKeyResponse` as JSON, being
-the key as `publicKeySPKI` together with `validFrom` and `validTo`, the UTC
-moments the key came into force and the next key starts. `DatedPublicKeyStore`
-knows both, and a store of your own states them by implementing
-`PublicKeyPeriodStore` as well. `validTo` is null for the last key in the
-schedule and both are null for a single key with no schedule. The answer is
+the key as `publicKey`, the encoding it is in as `format`, and `validFrom` and
+`validTo`, the UTC moments the key came into force and the next key starts.
+The one format defined is `spki`, a Subject Public Key Info PEM. It is what a
+request without a `format` receives, and a request for any other value is
+answered 400 rather than in an encoding the caller did not ask for.
+`DatedPublicKeyStore` knows both moments, and a store of your own states them
+by implementing `PublicKeyPeriodStore` as well. `validTo` is null for the last
+key in the schedule and both are null for a single key with no schedule. The
+answer is
 checked with `ValidatePublicKeyResponse` before it is sent, so a key that
 cannot be read or a schedule that contradicts itself is a server error rather
 than a bad answer. The PEM alone as text is not a valid answer, and a client
