@@ -168,78 +168,6 @@ func TestOWIDModifiedDomain(t *testing.T) {
 	}
 }
 
-// TestOWIDChain verifies that an OWID signed with other OWIDs passes
-// verification when the same others are provided, and fails when they are
-// omitted, reordered or different.
-func TestOWIDChain(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName, testContractURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	first, err := c.CreateOWIDandSign([]byte("first"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := c.CreateOWIDandSign([]byte("second"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	o, err := c.CreateOWIDandSign([]byte(testPayload), first, second)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Verify with the same others in the same order.
-	v, err := c.Verify(o, first, second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v != true {
-		t.Fatal(fmt.Errorf("chained OWID did not pass verification"))
-	}
-	v, err = o.VerifyWithPublicKey(c.publicKey, first, second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v != true {
-		t.Fatal(fmt.Errorf("chained OWID did not pass verification with " +
-			"public key"))
-	}
-
-	// Verify fails when the others are omitted.
-	v, err = c.Verify(o)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v != false {
-		t.Fatal(fmt.Errorf("chained OWID should not verify without others"))
-	}
-
-	// Verify fails when the others are in a different order.
-	v, err = c.Verify(o, second, first)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v != false {
-		t.Fatal(fmt.Errorf("chained OWID should not verify with others in " +
-			"a different order"))
-	}
-
-	// Verify fails when a different other is provided.
-	other, err := c.CreateOWIDandSign([]byte("other"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	v, err = c.Verify(o, first, other)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v != false {
-		t.Fatal(fmt.Errorf("chained OWID should not verify with different " +
-			"others"))
-	}
-}
-
 // TestOWIDQueryFormRoundTrip verifies that an OWID added to a query string
 // with ToQuery can be read back with FromForm.
 func TestOWIDQueryFormRoundTrip(t *testing.T) {
@@ -389,7 +317,7 @@ func newOWID(creator *Creator) (*OWID, error) {
 	if err != nil {
 		return nil, err
 	}
-	o.sign(c, nil)
+	o.sign(c)
 	return o, nil
 }
 

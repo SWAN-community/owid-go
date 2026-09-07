@@ -213,7 +213,7 @@ func TestParsingIsNotVerification(t *testing.T) {
 		t.Fatalf("flipping a signature byte leaves the envelope readable: %v", err)
 	}
 
-	valid, err := back.VerifyWithCrypto(crypto, nil)
+	valid, err := back.VerifyWithCrypto(crypto)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -301,7 +301,7 @@ func signedAt(t *testing.T, domain string, moment time.Time, c *Crypto) *OWID {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := o.sign(c, nil); err != nil {
+	if err := o.sign(c); err != nil {
 		t.Fatal(err)
 	}
 	return o

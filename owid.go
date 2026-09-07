@@ -88,7 +88,7 @@ type OWID struct {
 	domain    string    // Domain associated with the creator.
 	date      time.Time // The date and time to the nearest minute in UTC of the creation.
 	payload   []byte    // Array of bytes that form the identifier.
-	signature []byte    // Signature for this OWID and it's ancestor from the creator.
+	signature []byte    // Signature from the creator over the fields above.
 }
 
 // Version returns the byte version of the OWID.
@@ -157,10 +157,10 @@ func newOwid(
 	return &o, nil
 }
 
-// Sign this OWID and any other OWIDs using the Crypto instance provided.
-// sign is not exported, for the reason given on Creator.signOwid.
-func (o *OWID) sign(c *Crypto, others []*OWID) error {
-	b, err := o.dataForCrypto(others)
+// sign this OWID using the Crypto instance provided. It is not exported, for
+// the reason given on Creator.signOwid.
+func (o *OWID) sign(c *Crypto) error {
+	b, err := o.dataForCrypto()
 	if err != nil {
 		return err
 	}
@@ -171,9 +171,10 @@ func (o *OWID) sign(c *Crypto, others []*OWID) error {
 	return nil
 }
 
-// VerifyWithCrypto this OWID and any other OWIDs are valid.
-func (o *OWID) VerifyWithCrypto(c *Crypto, others []*OWID) (bool, error) {
-	b, err := o.dataForCrypto(others)
+// VerifyWithCrypto says whether the signature is genuine for the key the
+// Crypto instance holds.
+func (o *OWID) VerifyWithCrypto(c *Crypto) (bool, error) {
+	b, err := o.dataForCrypto()
 	if err != nil {
 		return false, err
 	}
@@ -188,9 +189,7 @@ func (o *OWID) VerifyWithCrypto(c *Crypto, others []*OWID) (bool, error) {
 // as a forgery. A key that cannot be decoded leaves the signature unjudged,
 // and a caller acting on "invalid" would reject good identifiers during an
 // outage.
-func (o *OWID) SignatureStatusWithPublicKey(
-	public string,
-	others ...*OWID) SignatureStatus {
+func (o *OWID) SignatureStatusWithPublicKey(public string) SignatureStatus {
 	if public == "" {
 		return KeyUnavailable
 	}
@@ -202,21 +201,19 @@ func (o *OWID) SignatureStatusWithPublicKey(
 		// The key is the thing at fault, not the identifier.
 		return InvalidKey
 	}
-	return o.SignatureStatusWithCrypto(c, others...)
+	return o.SignatureStatusWithCrypto(c)
 }
 
 // SignatureStatusWithCrypto is SignatureStatusWithPublicKey for a key that has
 // already been read.
-func (o *OWID) SignatureStatusWithCrypto(
-	c *Crypto,
-	others ...*OWID) SignatureStatus {
+func (o *OWID) SignatureStatusWithCrypto(c *Crypto) SignatureStatus {
 	if c == nil {
 		return KeyUnavailable
 	}
 	if len(o.signature) != signatureLength {
 		return InvalidSignatureLength
 	}
-	b, err := o.dataForCrypto(others)
+	b, err := o.dataForCrypto()
 	if err != nil {
 		// The identifier is fine and the question could not be put.
 		return VerificationError
@@ -231,16 +228,14 @@ func (o *OWID) SignatureStatusWithCrypto(
 	return SignatureInvalid
 }
 
-// VerifyWithPublicKey this OWID and it's ancestors using the public key in PEM
-// format provided.
-func (o *OWID) VerifyWithPublicKey(
-	public string,
-	others ...*OWID) (bool, error) {
+// VerifyWithPublicKey says whether the signature is genuine for the public
+// key in PEM form provided.
+func (o *OWID) VerifyWithPublicKey(public string) (bool, error) {
 	c, err := NewCryptoVerifyOnly(public)
 	if err != nil {
 		return false, err
 	}
-	return o.VerifyWithCrypto(c, others)
+	return o.VerifyWithCrypto(c)
 }
 
 // publicKeyURL is the well known end point that serves the creator's public
@@ -389,7 +384,7 @@ func (o *OWID) requestKey(url string) (keyAnswer, error) {
 // be the same key is not tried again. A creator that stated no span has one
 // key and no schedule, so there is no neighbour to try. This costs at most
 // two more requests, and only for a signature that has already failed.
-func (o *OWID) neighbourVerifies(scheme string, minute uint32, tried keyAnswer, others []*OWID) bool {
+func (o *OWID) neighbourVerifies(scheme string, minute uint32, tried keyAnswer) bool {
 	if !tried.known {
 		return false
 	}
@@ -406,7 +401,7 @@ func (o *OWID) neighbourVerifies(scheme string, minute uint32, tried keyAnswer, 
 		if err != nil || answer.pem == tried.pem {
 			continue
 		}
-		if o.SignatureStatusWithPublicKey(answer.pem, others...) == SignatureValid {
+		if o.SignatureStatusWithPublicKey(answer.pem) == SignatureValid {
 			return true
 		}
 	}
@@ -436,12 +431,12 @@ var errKeyNotInForce = errors.New(
 // own statement puts the OWID's minute outside the span of the key it
 // answered with, because a key that was not in force at that minute proves
 // nothing about the identifier, and otherwise SignatureInvalid.
-func (o *OWID) statusAfterKeyFailed(scheme string, tried keyAnswer, others []*OWID) SignatureStatus {
+func (o *OWID) statusAfterKeyFailed(scheme string, tried keyAnswer) SignatureStatus {
 	if o.date.Before(ioDateBase) {
 		return SignatureInvalid
 	}
 	minute := minutesSinceBase(o.date)
-	if o.neighbourVerifies(scheme, minute, tried, others) {
+	if o.neighbourVerifies(scheme, minute, tried) {
 		return SignatureValid
 	}
 	if tried.known && !tried.covers(minute) {
@@ -450,8 +445,8 @@ func (o *OWID) statusAfterKeyFailed(scheme string, tried keyAnswer, others []*OW
 	return SignatureInvalid
 }
 
-// Verify this OWID and it's ancestors by fetching the public key from the
-// domain associated with the OWID.
+// Verify this OWID by fetching the public key from the domain associated
+// with the OWID.
 //
 // The false this returns alongside an error does not mean the signature is
 // wrong, because an outage produces the same pair as a forgery does, and so
@@ -468,7 +463,7 @@ func (o *OWID) Verify(scheme string) (bool, error) {
 	if err != nil || valid {
 		return valid, err
 	}
-	switch o.statusAfterKeyFailed(scheme, answer, nil) {
+	switch o.statusAfterKeyFailed(scheme, answer) {
 	case SignatureValid:
 		return true, nil
 	case KeyUnavailable:
@@ -493,9 +488,7 @@ func (o *OWID) Verify(scheme string) (bool, error) {
 // should be distrusted.
 //
 // The Rust port answers the same question with Owid::verify_status.
-func (o *OWID) SignatureStatusFromDomain(
-	scheme string,
-	others ...*OWID) SignatureStatus {
+func (o *OWID) SignatureStatusFromDomain(scheme string) SignatureStatus {
 	answer, err := o.fetchKeyAt(o.publicKeyURL(scheme))
 	if err != nil {
 		var k *KeyFetchError
@@ -504,9 +497,9 @@ func (o *OWID) SignatureStatusFromDomain(
 		}
 		return KeyUnavailable
 	}
-	status := o.SignatureStatusWithPublicKey(answer.pem, others...)
+	status := o.SignatureStatusWithPublicKey(answer.pem)
 	if status == SignatureInvalid {
-		status = o.statusAfterKeyFailed(scheme, answer, others)
+		status = o.statusAfterKeyFailed(scheme, answer)
 	}
 	return status
 }
@@ -651,38 +644,18 @@ func FromForm(q *url.Values, n string) (*OWID, error) {
 	return o, nil
 }
 
-// dataForCrypto adds the fields from this OWID to the byte buffer without
-// the signature. Adds all the bytes of the others to the data.
-func (o *OWID) dataForCrypto(others []*OWID) ([]byte, error) {
+// dataForCrypto is the bytes the signature covers, being the fields of this
+// OWID without the signature and nothing else.
+func (o *OWID) dataForCrypto() ([]byte, error) {
 	length, err := o.byteLength(false)
 	if err != nil {
 		return nil, err
-	}
-	for _, other := range others {
-		if other != nil {
-			otherLength, lengthErr := other.byteLength(true)
-			if lengthErr != nil {
-				return nil, lengthErr
-			}
-			length, lengthErr = addByteLength(length, otherLength)
-			if lengthErr != nil {
-				return nil, lengthErr
-			}
-		}
 	}
 	var f bytes.Buffer
 	f.Grow(length)
 	err = o.toBufferNoSignature(&f)
 	if err != nil {
 		return nil, err
-	}
-	for _, a := range others {
-		if a != nil {
-			err = a.ToBuffer(&f)
-			if err != nil {
-				return nil, err
-			}
-		}
 	}
 	return f.Bytes(), nil
 }

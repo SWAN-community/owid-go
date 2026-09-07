@@ -8,10 +8,9 @@ Open Web Id (OWID) is a small cryptographically signed identifier. Each OWID
 records the domain of the party that created it, the date and time of
 creation to the nearest minute and a byte array payload. The signature is
 created with ECDSA using the P-256 curve over a SHA-256 hash of the other
-fields, so any change to the OWID after signing can be detected. OWIDs can
-also be chained together so that one OWID is bound to others at the moment of
-signing. Read the [OWID](https://github.com/SWAN-community/owid) project to
-learn more about the concepts behind this implementation.
+fields, so any change to the OWID after signing can be detected. Read the
+[OWID](https://github.com/SWAN-community/owid) project to learn more about
+the concepts behind this implementation.
 
 ## Scope of this implementation
 
@@ -131,7 +130,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	valid, err := n.VerifyWithCrypto(crypto, nil)
+	valid, err := n.VerifyWithCrypto(crypto)
 	if err != nil {
 		panic(err)
 	}
@@ -199,17 +198,6 @@ case owid.SignatureInvalid:
 default:
 	// The question could not be answered, so nothing is known either way.
 }
-```
-
-OWIDs can be chained by passing other OWIDs to the create operation. The same
-OWIDs must be provided again for verification to succeed.
-
-```go
-root, _ := creator.Create([]byte("root"))
-child, _ := creator.Create([]byte("child"), root)
-
-// True only when the same others are supplied in the same order.
-valid, _ := child.VerifyWithCrypto(crypto, []*owid.OWID{root})
 ```
 
 ## Reading an OWID
@@ -430,8 +418,8 @@ a resource key or license key on this end point and meters each call.
 go test ./...
 ```
 
-The tests cover creation, signing, verification, serialization, chaining, the
-node tree and the HTTP handlers. The suite also verifies externally signed
+The tests cover creation, signing, verification, serialization, the node
+tree and the HTTP handlers. The suite also verifies externally signed
 fixtures that prove the wire format and signatures are portable. Every parse
 and signature status is either produced by a test or named as unreachable
 with the reason, and a test walks both vocabularies so that a status added

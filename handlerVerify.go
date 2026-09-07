@@ -35,7 +35,7 @@ type verify struct {
 func HandlerVerify(s *Services) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var v verify
-		p, o, err := verifyGetOWIDs(r)
+		o, err := verifyGetOWID(r)
 		if err != nil {
 			returnAPIError(s, w, err, http.StatusBadRequest)
 			return
@@ -45,7 +45,7 @@ func HandlerVerify(s *Services) http.HandlerFunc {
 			returnAPIError(s, w, err, http.StatusInternalServerError)
 			return
 		}
-		v.Valid, err = c.Verify(o, p)
+		v.Valid, err = c.Verify(o)
 		if err != nil && strings.Contains(err.Error(), "verification error") {
 			returnAPIError(s, w, err, http.StatusInternalServerError)
 			return
@@ -60,24 +60,14 @@ func HandlerVerify(s *Services) http.HandlerFunc {
 	}
 }
 
-func verifyGetOWIDs(r *http.Request) (*OWID, *OWID, error) {
+// verifyGetOWID reads the OWID from the owid form parameter.
+func verifyGetOWID(r *http.Request) (*OWID, error) {
 	err := r.ParseForm()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if r.FormValue("owid") == "" {
-		return nil, nil, fmt.Errorf("owid parameter must be provided")
+		return nil, fmt.Errorf("owid parameter must be provided")
 	}
-	var p *OWID
-	if r.FormValue("parent") != "" {
-		p, err = FromBase64(r.FormValue("parent"))
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-	o, err := FromBase64(r.FormValue("owid"))
-	if err != nil {
-		return nil, nil, err
-	}
-	return p, o, nil
+	return FromBase64(r.FormValue("owid"))
 }

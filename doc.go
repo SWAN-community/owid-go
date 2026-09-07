@@ -24,10 +24,6 @@
 // creator, which can be provided directly in PEM form or fetched over HTTP
 // from the creator's domain.
 //
-// OWIDs can be chained together. When other OWIDs are passed to Create their
-// bytes form part of the signed data, which binds the new OWID to them. The
-// same OWIDs must be supplied again for verification to succeed.
-//
 // An OWID reaches calling code in one of two ways, being a read of bytes that
 // already are one, or a Creator that creates and signs one in a single step.
 // There is no exported constructor and the fields are read only, so an OWID
