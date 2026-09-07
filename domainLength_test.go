@@ -20,8 +20,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
-	"net/http"
-	"net/url"
 	"runtime"
 	"strconv"
 	"strings"
@@ -176,7 +174,7 @@ func TestDomainLengthNoTerminatorRefusedWithoutReading(t *testing.T) {
 // signed by the library's own signing path still parses, so the bound
 // agrees with what the library itself produces.
 func TestDomainLengthLibraryOutputParses(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
+	c, err := newTestCreator(testDomain, testOrgName, testContractURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +232,7 @@ func requireDomainLengthError(t *testing.T, err error) {
 // signature over that domain still verifies.
 func TestDomainLengthWriteMaximumRoundTrips(t *testing.T) {
 	d := domainLengthName(maximumDomainLength)
-	c, err := newTestCreator(d, testOrgName, registerContractURL)
+	c, err := newTestCreator(d, testOrgName, testContractURL)
 	if err != nil {
 		t.Fatalf("a domain of the maximum length should be accepted: %v", err)
 	}
@@ -301,7 +299,7 @@ func TestDomainLengthCreatorOverMaximumRefused(t *testing.T) {
 	_, err := newTestCreator(
 		domainLengthName(maximumDomainLength+1),
 		testOrgName,
-		registerContractURL)
+		testContractURL)
 	requireDomainLengthError(t, err)
 }
 
@@ -330,46 +328,6 @@ func TestDomainLengthSerialisationOverMaximumRefused(t *testing.T) {
 	o.signature = domainLengthSignature
 	_, err := o.AsByteArray()
 	requireDomainLengthError(t, err)
-}
-
-// TestDomainLengthRegisterOverMaximumRefused proves that the registration
-// end point refuses a Host header longer than the maximum, so the person
-// registering is told at that point, and that nothing is stored for it.
-func TestDomainLengthRegisterOverMaximumRefused(t *testing.T) {
-	s, err := getServices()
-	if err != nil {
-		t.Fatal(err)
-	}
-	d := domainLengthName(maximumDomainLength + 1)
-	rr := sendRaw(
-		t,
-		HandlerRegister(s),
-		d,
-		"/owid/api/v1/register",
-		url.Values{})
-	if rr == nil {
-		t.Fatal("no response from the register handler")
-	}
-	if rr.Code != http.StatusInternalServerError {
-		t.Errorf(
-			"expected status '%d', found '%d'",
-			http.StatusInternalServerError,
-			rr.Code)
-	}
-	if strings.Contains(
-		rr.Body.String(),
-		strconv.Itoa(maximumDomainLength)) == false {
-		t.Errorf(
-			"expected the maximum named in the response, found '%s'",
-			rr.Body.String())
-	}
-	c, err := s.store.GetCreator(d)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c != nil {
-		t.Error("a domain over the maximum should not be registered")
-	}
 }
 
 // TestDomainLengthRefusedBeforeSigning proves that a domain over the

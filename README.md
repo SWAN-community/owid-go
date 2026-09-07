@@ -16,9 +16,9 @@ learn more about the concepts behind this implementation.
 ## Scope of this implementation
 
 This repository contains the full Go implementation of OWID. It can create,
-sign and verify OWIDs, serve the HTTP endpoints used to register creators,
-publish public keys and verify OWIDs, and persist creator key pairs using
-AWS, Azure, GCP or local file storage backends.
+sign and verify OWIDs, serve the HTTP end points that publish public keys
+and verify OWIDs, and persist creator key pairs using AWS, Azure, GCP or
+local file storage backends.
 
 ## Payload size and application limits
 
@@ -369,12 +369,10 @@ registered for versions v1, v2 and v3.
 
 | Endpoint | Description |
 |----------|-------------|
-| /owid/register | HTML form to register the host domain as an OWID creator |
-| /owid/api/v3/creator | Returns the name, domain and public keys of the creator for the host domain |
 | /owid/api/v3/public-key | Returns the creator's public key as a JSON object carrying the key and the moments it is valid from and to, with the `format` parameter set to `spki` or `pkcs`. An optional `date` parameter (minutes since 2020-01-01 UTC, the OWID Date encoding) returns the key that was current at that date, or `404` if it predates the oldest key |
 | /owid/api/v3/verify | Verifies the OWID in the `owid` parameter and returns JSON in the form `{"valid":true}` |
 
-The same creator, public-key and verify paths are also registered under
+The same public-key and verify paths are also registered under
 `/owid/api/v1/` and `/owid/api/v2/` for backwards compatibility.
 
 ### Historical keys
@@ -404,11 +402,10 @@ that receives it reports the key as one it cannot read.
 
 ### Requiring authentication (optional)
 
-The OWID specification leaves authentication to the implementor: a creator
-MAY require a credential on the public-key and creator endpoints, for
-example to tie key access to a subscription. Supply an authorizer via
-`Services.SetAuthorizer`; without one the endpoints stay open. The verify
-and register endpoints are not affected.
+The OWID specification leaves authentication to the implementor. A creator
+MAY require a credential on the public-key end point, for example to tie key
+access to a subscription. Supply an authorizer via `Services.SetAuthorizer`.
+Without one the end point stays open. The verify end point is not affected.
 
 ```go
 services.SetAuthorizer(func(r *http.Request) error {
@@ -419,9 +416,9 @@ services.SetAuthorizer(func(r *http.Request) error {
 })
 ```
 
-When the authorizer returns an error the endpoint responds with status 401
+When the authorizer returns an error the end point responds with status 401
 and the error text as the body. The 51Degrees cloud, for example, requires
-a resource key or license key on these endpoints and meters each call.
+a resource key or license key on this end point and meters each call.
 
 ## Testing
 

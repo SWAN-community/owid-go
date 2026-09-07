@@ -43,9 +43,9 @@
 // question, answered by the SignatureStatus methods, which keep a signature
 // that does not match apart from a check that could not be made at all.
 //
-// The package also provides HTTP handlers to register creators, serve public
-// keys and verify OWIDs, along with storage implementations for AWS, Azure,
-// GCP and the local file system.
+// The package also provides HTTP handlers to serve public keys and verify
+// OWIDs, along with storage implementations for AWS, Azure, GCP and the local
+// file system.
 //
 // See https://github.com/SWAN-community/owid for the concepts behind OWID.
 package owid

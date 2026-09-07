@@ -117,7 +117,7 @@ func TestPayloadLengthMatchingOneMebibyteParses(t *testing.T) {
 // signed by the library's own signing path still parses, so the check
 // agrees with what the library itself produces.
 func TestPayloadLengthLibraryOutputParses(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
+	c, err := newTestCreator(testDomain, testOrgName, testContractURL)
 	if err != nil {
 		t.Fatal(err)
 	}

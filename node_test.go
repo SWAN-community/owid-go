@@ -24,7 +24,7 @@ import (
 // newTestTree creates a tree with a root and a chain of two child nodes. The
 // nodes are returned in order from the root to the leaf.
 func newTestTree(t *testing.T) (*Node, *Node, *Node) {
-	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
+	c, err := newTestCreator(testDomain, testOrgName, testContractURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestNodeTree(t *testing.T) {
 // node retrieval results, and that a single leaf no longer exists.
 func TestNodeAddChild(t *testing.T) {
 	root, c1, _ := newTestTree(t)
-	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
+	c, err := newTestCreator(testDomain, testOrgName, testContractURL)
 	if err != nil {
 		t.Fatal(err)
 	}

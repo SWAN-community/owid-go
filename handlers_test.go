@@ -31,118 +31,8 @@ import (
 	"time"
 )
 
-const (
-	registerDomain      = testDomain + " register"
-	registerName        = testOrgName + "register"
-	registerContractURL = "https://test.com/" + testOrgName
-)
-
-// TestRegisterHandler uses the HTTP handler to add a new domain to the OWID
-// store and verifies that the response is expected and that the store has been
-// updated to contain the new information.
-func TestRegisterHandler(t *testing.T) {
-	s, err := getServices()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Send the new name to the domain.
-	data := url.Values{}
-	data.Set("name", registerName)
-	rr := send(
-		t,
-		HandlerRegister(s),
-		registerDomain,
-		"/owid/api/v1/register",
-		data)
-
-	// Decompress the response and turn it into JSON map.
-	v := decompressAsString(t, rr)
-	if v == "" || strings.Contains(v, "html") == false {
-		t.Error("handler didn't return HTML")
-		return
-	}
-
-	// Check that the register domain now exists in the store.
-	c, err := s.store.GetCreator(registerDomain)
-	if err != nil {
-		t.Errorf("get failed with '%s'", err)
-		return
-	}
-	if registerDomain != c.domain {
-		t.Errorf("expected domain '%s', found '%s'", registerDomain, c.domain)
-		return
-	}
-	if registerDomain != c.domain {
-		t.Errorf("expected name '%s', found '%s'", registerName, c.name)
-		return
-	}
-	if c.privateKey == "" {
-		t.Error("no private key")
-		return
-	}
-	if c.publicKey == "" {
-		t.Error("no public key")
-		return
-	}
-}
-
-// TestCreatorHandler verifies that the handler returns the expected results
-// by comparing the data in the store to that returned form the handler.
-func TestCreatorHandler(t *testing.T) {
-	s, err := getServices()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Check the expected creator is present in the store.
-	expected, err := s.store.GetCreator(testDomain)
-	if err != nil {
-		t.Errorf("creator '%s' not in store", testDomain)
-		return
-	}
-
-	// Create the HTTP request and set the parameters.
-	rr := send(
-		t,
-		HandlerCreator(s),
-		testDomain,
-		"/owid/api/v1/creator",
-		url.Values{})
-
-	// Decompress the response and turn it into JSON map.
-	d := decompressAsMap(t, rr)
-
-	// Check the values of the expected fields are present.
-	if expected.domain != d["domain"] {
-		t.Errorf(
-			"expected domain '%s', returned '%s'",
-			expected.domain,
-			d["domain"])
-		return
-	}
-	if expected.name != d["name"] {
-		t.Errorf(
-			"expected name '%s', returned '%s'",
-			expected.name,
-			d["name"])
-		return
-	}
-	spki, _ := expected.SubjectPublicKeyInfo()
-	if spki != d["publicKeySPKI"] {
-		t.Errorf(
-			"expected SPKI public key '%s', returned '%s'",
-			spki,
-			d["publicKeySPKI"])
-		return
-	}
-
-	// Check no additional information has been returned.
-	if len(d) != 4 {
-		t.Errorf("too many keys returned")
-		return
-	}
-}
+// testContractURL is the contract URL the test creators are given.
+const testContractURL = "https://test.com/" + testOrgName
 
 // TestPublicKeyHandlerSPKI verifies that the public key endpoint returns the
 // PEM encoded key in SPKI format.
@@ -472,24 +362,6 @@ func sendRaw(
 	return rr
 }
 
-func decompressAsMap(
-	t *testing.T,
-	rr *httptest.ResponseRecorder) map[string]string {
-	var d map[string]string
-	br, err := gzip.NewReader(rr.Body)
-	if err != nil {
-		t.Errorf("error '%s' decompressing", err)
-		return nil
-	}
-	b, _ := io.ReadAll(br)
-	err = json.Unmarshal(b, &d)
-	if err != nil {
-		t.Errorf("error '%s' unmarshalling response to json", err)
-		return nil
-	}
-	return d
-}
-
 func decompressAsString(
 	t *testing.T,
 	rr *httptest.ResponseRecorder) string {
@@ -505,7 +377,7 @@ func getServices() (*Services, error) {
 	c := NewConfig("appsettings.test.none.json")
 	a := NewAccessSimple([]string{"key1", "key2"})
 	ts := newTestStore()
-	ts.addCreator(testDomain, testOrgName, registerContractURL)
+	ts.addCreator(testDomain, testOrgName, testContractURL)
 	return NewServices(c, ts, a), nil
 }
 
@@ -540,35 +412,6 @@ func TestPublicKeyHandlerAuthorizerDenies(t *testing.T) {
 	}
 }
 
-// TestCreatorHandlerAuthorizerDenies verifies that a configured authorizer
-// can reject a creator request with a 401.
-func TestCreatorHandlerAuthorizerDenies(t *testing.T) {
-	s, err := getServices()
-	if err != nil {
-		t.Fatal(err)
-	}
-	s.SetAuthorizer(func(r *http.Request) error {
-		return fmt.Errorf("a subscription credential is required")
-	})
-	rr := sendRaw(
-		t,
-		HandlerCreator(s),
-		testDomain,
-		"/owid/api/v3/creator",
-		url.Values{})
-	if rr.Code != http.StatusUnauthorized {
-		t.Errorf(
-			"handler returned wrong status code: got %v want %v",
-			rr.Code,
-			http.StatusUnauthorized)
-	}
-	if strings.Contains(
-		rr.Body.String(),
-		"a subscription credential is required") == false {
-		t.Error("response body should contain the authorizer error text")
-	}
-}
-
 // TestPublicKeyHandlerAuthorizerAllows verifies that an authorizer returning
 // nil lets the request through.
 func TestPublicKeyHandlerAuthorizerAllows(t *testing.T) {
@@ -590,31 +433,6 @@ func TestPublicKeyHandlerAuthorizerAllows(t *testing.T) {
 	v := publicKeyAnswer(t, rr)
 	if strings.HasPrefix(v.PublicKeySPKI, "-----BEGIN PUBLIC KEY-----") == false {
 		t.Error("handler did not return a PEM public key")
-	}
-}
-
-// TestCreatorHandlerAuthorizerAllows verifies that an authorizer returning
-// nil lets the creator request through.
-func TestCreatorHandlerAuthorizerAllows(t *testing.T) {
-	s, err := getServices()
-	if err != nil {
-		t.Fatal(err)
-	}
-	s.SetAuthorizer(func(r *http.Request) error {
-		return nil
-	})
-	rr := send(
-		t,
-		HandlerCreator(s),
-		testDomain,
-		"/owid/api/v3/creator",
-		url.Values{})
-	d := decompressAsMap(t, rr)
-	if d["domain"] != testDomain {
-		t.Errorf(
-			"expected domain '%s', returned '%s'",
-			testDomain,
-			d["domain"])
 	}
 }
 
@@ -710,72 +528,4 @@ func (rt *redirectTransport) RoundTrip(
 	r.URL.Scheme = rt.target.Scheme
 	r.URL.Host = rt.target.Host
 	return http.DefaultTransport.RoundTrip(r)
-}
-
-// TestCreatorHandlerWithDateSelectsKey verifies that a date selects the key
-// that was current then on the creator end point, matching public-key.
-func TestCreatorHandlerWithDateSelectsKey(t *testing.T) {
-	s, err := getServices()
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldCrypto, err := NewCrypto()
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldPem, err := oldCrypto.publicKeyToPemString()
-	if err != nil {
-		t.Fatal(err)
-	}
-	newCrypto, err := NewCrypto()
-	if err != nil {
-		t.Fatal(err)
-	}
-	newPem, err := newCrypto.publicKeyToPemString()
-	if err != nil {
-		t.Fatal(err)
-	}
-	s.SetPublicKeyStore(NewDatedPublicKeyStore(map[string][]DatedKey{
-		testDomain: {
-			{StartsAt: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), PublicKey: oldPem},
-			{StartsAt: time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC), PublicKey: newPem},
-		},
-	}))
-	minutes := uint32(
-		time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC).Sub(ioDateBase).Minutes())
-	q := url.Values{}
-	q.Set("date", strconv.FormatUint(uint64(minutes), 10))
-	rr := send(t, HandlerCreator(s), testDomain, "/owid/api/v3/creator", q)
-	d := decompressAsMap(t, rr)
-	if d["publicKeySPKI"] != oldPem {
-		t.Errorf("got %q, want the older key", d["publicKeySPKI"])
-	}
-}
-
-// TestCreatorHandlerDateBeforeOldestReturns404 verifies that a date before any
-// known key returns 404 on the creator end point.
-func TestCreatorHandlerDateBeforeOldestReturns404(t *testing.T) {
-	s, err := getServices()
-	if err != nil {
-		t.Fatal(err)
-	}
-	cry, err := NewCrypto()
-	if err != nil {
-		t.Fatal(err)
-	}
-	pem, err := cry.publicKeyToPemString()
-	if err != nil {
-		t.Fatal(err)
-	}
-	s.SetPublicKeyStore(NewDatedPublicKeyStore(map[string][]DatedKey{
-		testDomain: {
-			{StartsAt: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), PublicKey: pem},
-		},
-	}))
-	q := url.Values{}
-	q.Set("date", "1440") // 2020-01-02, before the only key
-	rr := sendRaw(t, HandlerCreator(s), testDomain, "/owid/api/v3/creator", q)
-	if rr.Code != http.StatusNotFound {
-		t.Errorf("got %v, want %v", rr.Code, http.StatusNotFound)
-	}
 }
