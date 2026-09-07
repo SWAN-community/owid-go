@@ -153,6 +153,18 @@ valid, err := o.VerifyWithPublicKey(publicKeyPem)
 valid, err = o.Verify("https")
 ```
 
+Keys fetched from a creator are held in memory, by creator, each against the
+span of minutes the creator has confirmed it for. A key is in force from the
+start of its period until the next key starts, so a key the creator answers
+with at two minutes was in force at every minute between them, and an OWID
+dated inside a confirmed span is verified without a request whichever minute
+it carries. One dated outside every span is asked about, which widens the
+span when the same key comes back. At most 1024 keys are held across every
+creator before the cache is emptied and filled again, and `ClearKeyCache`
+empties it on demand, which is how a long running process drops a key it has
+learned it should no longer trust. A key that could not be fetched is not
+held, so the next verification asks again.
+
 The false that `Verify` returns alongside an error does not mean the signature
 is wrong, because an outage produces the same pair as a forgery does. Where
 the difference matters, and it matters anywhere the answer decides whether to
