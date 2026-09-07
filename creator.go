@@ -33,19 +33,18 @@ type Creator struct {
 	verify      *Crypto // Cached crypto instance for verification
 }
 
-// Create returns a new signed OWID from the creator carrying the payload, and
-// covering any others so that a tree can be verified as a whole.
+// Create returns a new signed OWID from the creator carrying the payload.
 //
 // This is one of only two ways an OWID reaches calling code, the other being a
 // successful parse. The creator owns the version, the domain, the date and the
-// signature; a caller supplies the payload and nothing else, so there is no
-// moment at which a partly built OWID exists for anyone to hold or pass on.
-func (c *Creator) Create(payload []byte, others ...*OWID) (*OWID, error) {
+// signature, and a caller supplies the payload and nothing else, so there is
+// no moment at which a partly built OWID exists for anyone to hold or pass on.
+func (c *Creator) Create(payload []byte) (*OWID, error) {
 	o, err := newOwid(c.domain, time.Now(), payload)
 	if err != nil {
 		return nil, err
 	}
-	if err = c.signOwid(o, others...); err != nil {
+	if err = c.signOwid(o); err != nil {
 		return nil, err
 	}
 	return o, nil
@@ -55,7 +54,7 @@ func (c *Creator) Create(payload []byte, others ...*OWID) (*OWID, error) {
 // sign is not exported. An OWID cannot exist in an unsigned state, so there
 // is nothing outside this package for a caller to sign, and re-signing one
 // that already exists would replace a signature the fields were read with.
-func (c *Creator) signOwid(o *OWID, others ...*OWID) error {
+func (c *Creator) signOwid(o *OWID) error {
 	if c.domain != o.domain {
 		return fmt.Errorf(
 			"can't use creator '%s' to sign OWID for domain '%s'",
@@ -66,7 +65,7 @@ func (c *Creator) signOwid(o *OWID, others ...*OWID) error {
 	if err != nil {
 		return err
 	}
-	return o.sign(x, others)
+	return o.sign(x)
 }
 
 // CreateOWIDandSign creates the OWID with the payload and signs the result.
@@ -74,14 +73,12 @@ func (c *Creator) signOwid(o *OWID, others ...*OWID) error {
 // Kept as the name callers already use. Create is the same operation named
 // for what it does, and both now go through the one path, because creation
 // and signing were never two steps a caller should be able to separate.
-func (c *Creator) CreateOWIDandSign(
-	payload []byte,
-	others ...*OWID) (*OWID, error) {
-	return c.Create(payload, others...)
+func (c *Creator) CreateOWIDandSign(payload []byte) (*OWID, error) {
+	return c.Create(payload)
 }
 
-// Verify the OWID and any other OWIDs are valid for this creator.
-func (c *Creator) Verify(o *OWID, others ...*OWID) (bool, error) {
+// Verify says whether the OWID's signature is genuine for this creator.
+func (c *Creator) Verify(o *OWID) (bool, error) {
 	if c.domain != o.domain {
 		return false, fmt.Errorf(
 			"Can't use creator '%s' to verify OWID for domain '%s'",
@@ -92,7 +89,7 @@ func (c *Creator) Verify(o *OWID, others ...*OWID) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return o.VerifyWithCrypto(x, others)
+	return o.VerifyWithCrypto(x)
 }
 
 // NewCryptoSignOnly creates a new instance of the Crypto structure

@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -87,7 +88,7 @@ type OWID struct {
 	domain    string    // Domain associated with the creator.
 	date      time.Time // The date and time to the nearest minute in UTC of the creation.
 	payload   []byte    // Array of bytes that form the identifier.
-	signature []byte    // Signature for this OWID and it's ancestor from the creator.
+	signature []byte    // Signature from the creator over the fields above.
 }
 
 // Version returns the byte version of the OWID.
@@ -156,10 +157,10 @@ func newOwid(
 	return &o, nil
 }
 
-// Sign this OWID and any other OWIDs using the Crypto instance provided.
-// sign is not exported, for the reason given on Creator.signOwid.
-func (o *OWID) sign(c *Crypto, others []*OWID) error {
-	b, err := o.dataForCrypto(others)
+// sign this OWID using the Crypto instance provided. It is not exported, for
+// the reason given on Creator.signOwid.
+func (o *OWID) sign(c *Crypto) error {
+	b, err := o.dataForCrypto()
 	if err != nil {
 		return err
 	}
@@ -170,9 +171,10 @@ func (o *OWID) sign(c *Crypto, others []*OWID) error {
 	return nil
 }
 
-// VerifyWithCrypto this OWID and any other OWIDs are valid.
-func (o *OWID) VerifyWithCrypto(c *Crypto, others []*OWID) (bool, error) {
-	b, err := o.dataForCrypto(others)
+// VerifyWithCrypto says whether the signature is genuine for the key the
+// Crypto instance holds.
+func (o *OWID) VerifyWithCrypto(c *Crypto) (bool, error) {
+	b, err := o.dataForCrypto()
 	if err != nil {
 		return false, err
 	}
@@ -186,12 +188,8 @@ func (o *OWID) VerifyWithCrypto(c *Crypto, others []*OWID) (bool, error) {
 // could not be answered, which is a different thing and must never be reported
 // as a forgery. A key that cannot be decoded leaves the signature unjudged,
 // and a caller acting on "invalid" would reject good identifiers during an
-// outage. On 30 August 2026 the key end points served PEM a strict parser
-// rejects and every offline verification failed, with the keys and the
-// identifiers both fine.
-func (o *OWID) SignatureStatusWithPublicKey(
-	public string,
-	others ...*OWID) SignatureStatus {
+// outage.
+func (o *OWID) SignatureStatusWithPublicKey(public string) SignatureStatus {
 	if public == "" {
 		return KeyUnavailable
 	}
@@ -203,21 +201,19 @@ func (o *OWID) SignatureStatusWithPublicKey(
 		// The key is the thing at fault, not the identifier.
 		return InvalidKey
 	}
-	return o.SignatureStatusWithCrypto(c, others...)
+	return o.SignatureStatusWithCrypto(c)
 }
 
 // SignatureStatusWithCrypto is SignatureStatusWithPublicKey for a key that has
 // already been read.
-func (o *OWID) SignatureStatusWithCrypto(
-	c *Crypto,
-	others ...*OWID) SignatureStatus {
+func (o *OWID) SignatureStatusWithCrypto(c *Crypto) SignatureStatus {
 	if c == nil {
 		return KeyUnavailable
 	}
 	if len(o.signature) != signatureLength {
 		return InvalidSignatureLength
 	}
-	b, err := o.dataForCrypto(others)
+	b, err := o.dataForCrypto()
 	if err != nil {
 		// The identifier is fine and the question could not be put.
 		return VerificationError
@@ -232,16 +228,14 @@ func (o *OWID) SignatureStatusWithCrypto(
 	return SignatureInvalid
 }
 
-// VerifyWithPublicKey this OWID and it's ancestors using the public key in PEM
-// format provided.
-func (o *OWID) VerifyWithPublicKey(
-	public string,
-	others ...*OWID) (bool, error) {
+// VerifyWithPublicKey says whether the signature is genuine for the public
+// key in PEM form provided.
+func (o *OWID) VerifyWithPublicKey(public string) (bool, error) {
 	c, err := NewCryptoVerifyOnly(public)
 	if err != nil {
 		return false, err
 	}
-	return o.VerifyWithCrypto(c, others)
+	return o.VerifyWithCrypto(c)
 }
 
 // publicKeyURL is the well known end point that serves the creator's public
@@ -250,15 +244,25 @@ func (o *OWID) VerifyWithPublicKey(
 // that do not support the dated lookup ignore the parameter and return the
 // current key, which is what an undated request would have received anyway.
 func (o *OWID) publicKeyURL(scheme string) string {
+	if o.date.Before(ioDateBase) {
+		return o.publicKeyURLAt(scheme, nil)
+	}
+	minutes := minutesSinceBase(o.date)
+	return o.publicKeyURLAt(scheme, &minutes)
+}
+
+// publicKeyURLAt is the URL of the creator's public key end point asking for
+// the key in force at the minute given, or for the key in force now where
+// the minute is nil, in SPKI form by name.
+func (o *OWID) publicKeyURLAt(scheme string, minutes *uint32) string {
 	u := url.URL{
 		Scheme: scheme,
 		Host:   o.domain,
 		Path:   fmt.Sprintf("/owid/api/v%d/public-key", o.version)}
 	q := u.Query()
-	q.Set("format", "pkcs")
-	if !o.date.Before(ioDateBase) {
-		minutes := minutesSinceBase(o.date)
-		q.Set("date", strconv.FormatUint(uint64(minutes), 10))
+	q.Set("format", SpkiFormat)
+	if minutes != nil {
+		q.Set("date", strconv.FormatUint(uint64(*minutes), 10))
 	}
 	u.RawQuery = q.Encode()
 	return u.String()
@@ -305,50 +309,170 @@ func (e *KeyFetchError) Unwrap() error { return e.Err }
 // report, so both the boolean and the status forms of verification decide the
 // outcome the same way.
 func (o *OWID) fetchPublicKey(scheme string) (string, error) {
-	url := o.publicKeyURL(scheme)
-	if pem, held := cachedKey(url); held {
-		return pem, nil
+	answer, err := o.fetchKeyAt(o.publicKeyURL(scheme))
+	return answer.pem, err
+}
+
+// fetchKeyAt returns the key the URL asks for, from the cache where a held key
+// is known to cover the minute asked about and otherwise from the creator,
+// together with the span the creator stated for it. The answer is the JSON
+// form, which carries the moments the key is valid from and to as well as the
+// key, so the whole span is held from that one answer. An answer in any other
+// form, the PEM alone among them, is reported as a key that cannot be read.
+func (o *OWID) fetchKeyAt(url string) (keyAnswer, error) {
+	if answer, held := cachedKey(url); held {
+		return answer, nil
 	}
+	fetch, lead := shareFetch(url)
+	if !lead {
+		// Another caller is making this request. Its answer is this
+		// caller's answer too.
+		<-fetch.done
+		return fetch.answer, fetch.err
+	}
+	answer, err := o.requestKey(url)
+	fetch.finish(url, answer, err)
+	return answer, err
+}
+
+// requestKey makes the request for the URL and holds the answer.
+func (o *OWID) requestKey(url string) (keyAnswer, error) {
 	r, err := client.Get(url)
 	if err != nil {
-		return "", &KeyFetchError{
+		return keyAnswer{}, &KeyFetchError{
 			Status: KeyUnavailable,
 			Domain: o.domain,
 			Err:    err}
 	}
 	defer r.Body.Close()
 	if r.StatusCode != http.StatusOK {
-		return "", &KeyFetchError{
+		return keyAnswer{}, &KeyFetchError{
 			Status:     KeyUnavailable,
 			Domain:     o.domain,
 			StatusCode: r.StatusCode}
 	}
 	v, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		return "", &KeyFetchError{
+		return keyAnswer{}, &KeyFetchError{
 			Status:     KeyUnavailable,
 			Domain:     o.domain,
 			StatusCode: r.StatusCode,
 			Err:        err}
 	}
-	pem := string(v)
-	rememberKey(url, pem)
-	return pem, nil
+	pem, start, end, err := ReadPublicKeyResponse(v)
+	if err != nil {
+		return keyAnswer{}, &KeyFetchError{
+			Status:     InvalidKey,
+			Domain:     o.domain,
+			StatusCode: r.StatusCode,
+			Err:        err}
+	}
+	return rememberKey(url, pem, start, end), nil
 }
 
-// Verify this OWID and it's ancestors by fetching the public key from the
-// domain associated with the OWID.
+// neighbourVerifies asks whether a key neighbouring the one the OWID's own
+// minute selected verifies the signature instead.
+//
+// A creator's signing machines may not agree with its own schedule to the
+// minute, so an identifier dated just after a key started may have been
+// signed with the key before it, and one dated just before may have been
+// signed with the key after. Where the signature does not verify under the
+// key selected and the OWID's minute is within the clock drift allowance of
+// an edge of the span the creator stated for that key, the key for the
+// minute just beyond that edge is asked for and tried. A key already held
+// for that minute is not asked for again, and a neighbour that turns out to
+// be the same key is not tried again. A creator that stated no span has one
+// key and no schedule, so there is no neighbour to try. This costs at most
+// two more requests, and only for a signature that has already failed.
+func (o *OWID) neighbourVerifies(scheme string, minute uint32, tried keyAnswer) bool {
+	if !tried.known {
+		return false
+	}
+	var beyond []uint32
+	if tried.first > 0 && nearEdge(minute, tried.first) {
+		beyond = append(beyond, tried.first-1)
+	}
+	if tried.last < math.MaxUint32 && nearEdge(minute, tried.last) {
+		beyond = append(beyond, tried.last+1)
+	}
+	for _, at := range beyond {
+		neighbour := at
+		answer, err := o.fetchKeyAt(o.publicKeyURLAt(scheme, &neighbour))
+		if err != nil || answer.pem == tried.pem {
+			continue
+		}
+		if o.SignatureStatusWithPublicKey(answer.pem) == SignatureValid {
+			return true
+		}
+	}
+	return false
+}
+
+// nearEdge says whether the minute is no further from the edge minute than
+// the clocks of a creator's signing machines are allowed to differ from its
+// schedule.
+func nearEdge(minute uint32, edge uint32) bool {
+	apart := edge - minute
+	if minute > edge {
+		apart = minute - edge
+	}
+	return apart <= clockDriftAllowanceMinutes
+}
+
+// errKeyNotInForce is the reason carried where the creator's own statement
+// puts the OWID's date outside the span of the key it answered with.
+var errKeyNotInForce = errors.New(
+	"states that the key it answered with was not in force at the OWID's " +
+		"date, so the signature could not be checked")
+
+// statusAfterKeyFailed is the answer once the signature has failed under the
+// key selected for the OWID's own minute. It is SignatureValid where the
+// neighbouring key verifies the signature, KeyUnavailable where the creator's
+// own statement puts the OWID's minute outside the span of the key it
+// answered with, because a key that was not in force at that minute proves
+// nothing about the identifier, and otherwise SignatureInvalid.
+func (o *OWID) statusAfterKeyFailed(scheme string, tried keyAnswer) SignatureStatus {
+	if o.date.Before(ioDateBase) {
+		return SignatureInvalid
+	}
+	minute := minutesSinceBase(o.date)
+	if o.neighbourVerifies(scheme, minute, tried) {
+		return SignatureValid
+	}
+	if tried.known && !tried.covers(minute) {
+		return KeyUnavailable
+	}
+	return SignatureInvalid
+}
+
+// Verify this OWID by fetching the public key from the domain associated
+// with the OWID.
 //
 // The false this returns alongside an error does not mean the signature is
-// wrong, because an outage produces the same pair as a forgery does. Use
-// SignatureStatusFromDomain where the difference matters, which is anywhere
-// the answer decides whether to distrust an identifier.
+// wrong, because an outage produces the same pair as a forgery does, and so
+// does a creator whose own statement puts the OWID's date outside the span of
+// the key it answered with. Use SignatureStatusFromDomain where the
+// difference matters, which is anywhere the answer decides whether to
+// distrust an identifier.
 func (o *OWID) Verify(scheme string) (bool, error) {
-	p, err := o.fetchPublicKey(scheme)
+	answer, err := o.fetchKeyAt(o.publicKeyURL(scheme))
 	if err != nil {
 		return false, err
 	}
-	return o.VerifyWithPublicKey(p)
+	valid, err := o.VerifyWithPublicKey(answer.pem)
+	if err != nil || valid {
+		return valid, err
+	}
+	switch o.statusAfterKeyFailed(scheme, answer) {
+	case SignatureValid:
+		return true, nil
+	case KeyUnavailable:
+		return false, &KeyFetchError{
+			Status: KeyUnavailable,
+			Domain: o.domain,
+			Err:    errKeyNotInForce}
+	}
+	return false, nil
 }
 
 // SignatureStatusFromDomain says whether the signature is genuine, or why that
@@ -356,16 +480,16 @@ func (o *OWID) Verify(scheme string) (bool, error) {
 // with the OWID.
 //
 // This is Verify answered with the status vocabulary. A key that cannot be
-// fetched is KeyUnavailable and one that arrives in a form this package cannot
-// read is InvalidKey. Neither is SignatureInvalid, because an outage or a
-// badly served key leaves the signature unjudged, and only SignatureInvalid
-// means the identifier should be distrusted.
+// fetched is KeyUnavailable, as is a key the creator says was not in force at
+// the OWID's date, under which nothing verifies. One that arrives in a form
+// this package cannot read is InvalidKey. None of these is SignatureInvalid,
+// because an outage, a badly served key or a key that was not in force leaves
+// the signature unjudged, and only SignatureInvalid means the identifier
+// should be distrusted.
 //
 // The Rust port answers the same question with Owid::verify_status.
-func (o *OWID) SignatureStatusFromDomain(
-	scheme string,
-	others ...*OWID) SignatureStatus {
-	p, err := o.fetchPublicKey(scheme)
+func (o *OWID) SignatureStatusFromDomain(scheme string) SignatureStatus {
+	answer, err := o.fetchKeyAt(o.publicKeyURL(scheme))
 	if err != nil {
 		var k *KeyFetchError
 		if errors.As(err, &k) {
@@ -373,7 +497,11 @@ func (o *OWID) SignatureStatusFromDomain(
 		}
 		return KeyUnavailable
 	}
-	return o.SignatureStatusWithPublicKey(p, others...)
+	status := o.SignatureStatusWithPublicKey(answer.pem)
+	if status == SignatureInvalid {
+		status = o.statusAfterKeyFailed(scheme, answer)
+	}
+	return status
 }
 
 // ToBuffer appends the OWID to the buffer provided.
@@ -516,38 +644,18 @@ func FromForm(q *url.Values, n string) (*OWID, error) {
 	return o, nil
 }
 
-// dataForCrypto adds the fields from this OWID to the byte buffer without
-// the signature. Adds all the bytes of the others to the data.
-func (o *OWID) dataForCrypto(others []*OWID) ([]byte, error) {
+// dataForCrypto is the bytes the signature covers, being the fields of this
+// OWID without the signature and nothing else.
+func (o *OWID) dataForCrypto() ([]byte, error) {
 	length, err := o.byteLength(false)
 	if err != nil {
 		return nil, err
-	}
-	for _, other := range others {
-		if other != nil {
-			otherLength, lengthErr := other.byteLength(true)
-			if lengthErr != nil {
-				return nil, lengthErr
-			}
-			length, lengthErr = addByteLength(length, otherLength)
-			if lengthErr != nil {
-				return nil, lengthErr
-			}
-		}
 	}
 	var f bytes.Buffer
 	f.Grow(length)
 	err = o.toBufferNoSignature(&f)
 	if err != nil {
 		return nil, err
-	}
-	for _, a := range others {
-		if a != nil {
-			err = a.ToBuffer(&f)
-			if err != nil {
-				return nil, err
-			}
-		}
 	}
 	return f.Bytes(), nil
 }

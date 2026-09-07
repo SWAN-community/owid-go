@@ -17,6 +17,7 @@
 package owid
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -149,11 +150,60 @@ type keyServer struct {
 	server   *httptest.Server
 	schedule []scheduledKey
 	dates    []string
+	// Whether the answer states the moments the key is valid from and to,
+	// as a creator with a schedule does. A creator with one key and no schedule states neither, and the tests of the cache built from confirmed minutes run against such a creator.
+	span bool
 }
 
 func newKeyServer(t *testing.T) *keyServer {
 	t.Helper()
-	k := &keyServer{schedule: fixtureSchedule(t)}
+	return newKeyServerStating(t, true)
+}
+
+// newSpanlessKeyServer is newKeyServer answering with the key alone and no
+// moments, as a creator that knows nothing of when its key started does.
+func newSpanlessKeyServer(t *testing.T) *keyServer {
+	t.Helper()
+	return newKeyServerStating(t, false)
+}
+
+// nextStart is the earliest start in the schedule after the key given, or
+// nil for the last key.
+func nextStart(s []scheduledKey, key *scheduledKey) *time.Time {
+	var next *time.Time
+	for i := range s {
+		candidate := s[i].startsAt
+		if candidate.After(key.startsAt) && (next == nil || candidate.Before(*next)) {
+			next = &candidate
+		}
+	}
+	return next
+}
+
+// writeKeyAnswer answers with the key as JSON, built and checked the way the
+// handler in this package builds it, with the span where the server states
+// spans and the moments left out where it does not.
+func writeKeyAnswer(t *testing.T, w http.ResponseWriter, span bool, pem string, from time.Time, to *time.Time, asked time.Time) {
+	t.Helper()
+	var period *KeyPeriod
+	if span {
+		period = &KeyPeriod{PublicKey: pem, StartsAt: from, EndsAt: to}
+	}
+	response, err := NewPublicKeyResponse(pem, period, asked)
+	if err != nil {
+		t.Errorf("the stand in creator would not answer: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		t.Error(err)
+	}
+}
+
+func newKeyServerStating(t *testing.T, span bool) *keyServer {
+	t.Helper()
+	k := &keyServer{schedule: fixtureSchedule(t), span: span}
 	k.server = httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			d := r.URL.Query().Get("date")
@@ -175,7 +225,7 @@ func newKeyServer(t *testing.T) *keyServer {
 				w.WriteHeader(http.StatusNotFound)
 				return
 			}
-			fmt.Fprint(w, key.pem)
+			writeKeyAnswer(t, w, k.span, key.pem, key.startsAt, nextStart(k.schedule, key), asked)
 		}))
 	t.Cleanup(k.server.Close)
 	return k
@@ -341,7 +391,7 @@ func TestFetchedKeyThatDidNotSignIsSignatureInvalid(t *testing.T) {
 	}
 	s := httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
-			fmt.Fprint(w, other)
+			_ = json.NewEncoder(w).Encode(PublicKeyResponse{Format: SpkiFormat, PublicKey: other})
 		}))
 	defer s.Close()
 	useServer(t, s.URL)
@@ -351,10 +401,7 @@ func TestFetchedKeyThatDidNotSignIsSignatureInvalid(t *testing.T) {
 	}
 }
 
-// TestFetchedKeyThatCannotBeReadIsInvalidKey covers the 30 August 2026 case
-// where the end points served PEM a strict parser rejects. The fault is in
-// the key and the signature was never examined, so this must not read as an
-// attack either.
+// TestFetchedKeyThatCannotBeReadIsInvalidKey checks that a key which arrives in a form this package cannot read is reported as such. The fault is in the key and the signature was never examined, so this must not read as an attack either.
 func TestFetchedKeyThatCannotBeReadIsInvalidKey(t *testing.T) {
 	o := fixtureIdentifier(t)
 	s := httptest.NewServer(http.HandlerFunc(
@@ -382,22 +429,19 @@ func TestARedirectIsNotFollowed(t *testing.T) {
 	if k == nil {
 		t.Fatal("the schedule should cover the date")
 	}
+	followed := false
 	elsewhere := httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
-			fmt.Fprint(w, k.pem)
+			followed = true
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(PublicKeyResponse{Format: SpkiFormat, PublicKey: k.pem})
 		}))
 	defer elsewhere.Close()
-	followed := false
 	creator := httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
-			http.Redirect(w, r, elsewhere.URL+"/key.pem", http.StatusFound)
+			http.Redirect(w, r, elsewhere.URL+"/owid/api/v3/public-key", http.StatusFound)
 		}))
 	defer creator.Close()
-	elsewhere.Config.Handler = http.HandlerFunc(
-		func(w http.ResponseWriter, r *http.Request) {
-			followed = true
-			fmt.Fprint(w, k.pem)
-		})
 	useServer(t, creator.URL)
 
 	if got := o.SignatureStatusFromDomain("https"); got != KeyUnavailable {

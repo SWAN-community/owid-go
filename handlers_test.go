@@ -31,118 +31,8 @@ import (
 	"time"
 )
 
-const (
-	registerDomain      = testDomain + " register"
-	registerName        = testOrgName + "register"
-	registerContractURL = "https://test.com/" + testOrgName
-)
-
-// TestRegisterHandler uses the HTTP handler to add a new domain to the OWID
-// store and verifies that the response is expected and that the store has been
-// updated to contain the new information.
-func TestRegisterHandler(t *testing.T) {
-	s, err := getServices()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Send the new name to the domain.
-	data := url.Values{}
-	data.Set("name", registerName)
-	rr := send(
-		t,
-		HandlerRegister(s),
-		registerDomain,
-		"/owid/api/v1/register",
-		data)
-
-	// Decompress the response and turn it into JSON map.
-	v := decompressAsString(t, rr)
-	if v == "" || strings.Contains(v, "html") == false {
-		t.Error("handler didn't return HTML")
-		return
-	}
-
-	// Check that the register domain now exists in the store.
-	c, err := s.store.GetCreator(registerDomain)
-	if err != nil {
-		t.Errorf("get failed with '%s'", err)
-		return
-	}
-	if registerDomain != c.domain {
-		t.Errorf("expected domain '%s', found '%s'", registerDomain, c.domain)
-		return
-	}
-	if registerDomain != c.domain {
-		t.Errorf("expected name '%s', found '%s'", registerName, c.name)
-		return
-	}
-	if c.privateKey == "" {
-		t.Error("no private key")
-		return
-	}
-	if c.publicKey == "" {
-		t.Error("no public key")
-		return
-	}
-}
-
-// TestCreatorHandler verifies that the handler returns the expected results
-// by comparing the data in the store to that returned form the handler.
-func TestCreatorHandler(t *testing.T) {
-	s, err := getServices()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Check the expected creator is present in the store.
-	expected, err := s.store.GetCreator(testDomain)
-	if err != nil {
-		t.Errorf("creator '%s' not in store", testDomain)
-		return
-	}
-
-	// Create the HTTP request and set the parameters.
-	rr := send(
-		t,
-		HandlerCreator(s),
-		testDomain,
-		"/owid/api/v1/creator",
-		url.Values{})
-
-	// Decompress the response and turn it into JSON map.
-	d := decompressAsMap(t, rr)
-
-	// Check the values of the expected fields are present.
-	if expected.domain != d["domain"] {
-		t.Errorf(
-			"expected domain '%s', returned '%s'",
-			expected.domain,
-			d["domain"])
-		return
-	}
-	if expected.name != d["name"] {
-		t.Errorf(
-			"expected name '%s', returned '%s'",
-			expected.name,
-			d["name"])
-		return
-	}
-	spki, _ := expected.SubjectPublicKeyInfo()
-	if spki != d["publicKeySPKI"] {
-		t.Errorf(
-			"expected SPKI public key '%s', returned '%s'",
-			spki,
-			d["publicKeySPKI"])
-		return
-	}
-
-	// Check no additional information has been returned.
-	if len(d) != 4 {
-		t.Errorf("too many keys returned")
-		return
-	}
-}
+// testContractURL is the contract URL the test creators are given.
+const testContractURL = "https://test.com/" + testOrgName
 
 // TestPublicKeyHandlerSPKI verifies that the public key endpoint returns the
 // PEM encoded key in SPKI format.
@@ -163,8 +53,8 @@ func TestPublicKeyHandlerSPKI(t *testing.T) {
 		testDomain,
 		"/owid/api/v3/public-key",
 		q)
-	v := decompressAsString(t, rr)
-	if strings.HasPrefix(v, "-----BEGIN PUBLIC KEY-----") == false {
+	v := publicKeyAnswer(t, rr)
+	if strings.HasPrefix(v.PublicKey, "-----BEGIN PUBLIC KEY-----") == false {
 		t.Error("handler did not return a PEM public key")
 		return
 	}
@@ -172,14 +62,20 @@ func TestPublicKeyHandlerSPKI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != spki {
+	if v.PublicKey != spki {
 		t.Error("returned key does not match the creator SPKI key")
+	}
+	if v.Format != SpkiFormat {
+		t.Errorf("the answer should echo the format asked for, got %q", v.Format)
+	}
+	if v.ValidFrom != nil || v.ValidTo != nil {
+		t.Error("a single key with no schedule should be stated with no moments")
 	}
 }
 
-// TestPublicKeyHandlerPKCS verifies that the public key endpoint returns the
-// PEM encoded key in PKCS format.
-func TestPublicKeyHandlerPKCS(t *testing.T) {
+// TestPublicKeyHandlerDefaultsToSPKI verifies that a request naming no format
+// is answered in the one format defined, and that the answer says so.
+func TestPublicKeyHandlerDefaultsToSPKI(t *testing.T) {
 	s, err := getServices()
 	if err != nil {
 		t.Fatal(err)
@@ -188,46 +84,49 @@ func TestPublicKeyHandlerPKCS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	q := url.Values{}
-	q.Set("format", "pkcs")
 	rr := send(
 		t,
 		HandlerPublicKey(s),
 		testDomain,
 		"/owid/api/v3/public-key",
-		q)
-	v := decompressAsString(t, rr)
-	if strings.HasPrefix(v, "-----BEGIN PUBLIC KEY-----") == false {
-		t.Error("handler did not return a PEM public key")
-		return
+		url.Values{})
+	v := publicKeyAnswer(t, rr)
+	if v.Format != SpkiFormat {
+		t.Errorf("a request naming no format should be answered in spki, got %q", v.Format)
 	}
-	if v != c.publicKey {
-		t.Error("returned key does not match the creator public key")
+	spki, err := c.SubjectPublicKeyInfo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.PublicKey != spki {
+		t.Error("returned key does not match the creator SPKI key")
 	}
 }
 
-// TestPublicKeyHandlerInvalidFormat verifies that the public key endpoint
-// rejects an unknown format parameter. The current implementation returns
-// status 500 rather than 400 for a bad format value. This test documents
-// that behavior.
-func TestPublicKeyHandlerInvalidFormat(t *testing.T) {
+// TestPublicKeyHandlerRefusesAnotherFormat verifies that the public key end
+// point answers 400 to a format it does not serve, pkcs among them, rather
+// than answering in an encoding the caller did not ask for.
+func TestPublicKeyHandlerRefusesAnotherFormat(t *testing.T) {
 	s, err := getServices()
 	if err != nil {
 		t.Fatal(err)
 	}
-	q := url.Values{}
-	q.Set("format", "invalid")
-	rr := sendRaw(
-		t,
-		HandlerPublicKey(s),
-		testDomain,
-		"/owid/api/v3/public-key",
-		q)
-	if rr.Code != http.StatusInternalServerError {
-		t.Errorf(
-			"handler returned wrong status code: got %v want %v",
-			rr.Code,
-			http.StatusInternalServerError)
+	for _, format := range []string{"pkcs", "invalid"} {
+		q := url.Values{}
+		q.Set("format", format)
+		rr := sendRaw(
+			t,
+			HandlerPublicKey(s),
+			testDomain,
+			"/owid/api/v3/public-key",
+			q)
+		if rr.Code != http.StatusBadRequest {
+			t.Errorf(
+				"format %q should be refused with %v, got %v",
+				format,
+				http.StatusBadRequest,
+				rr.Code)
+		}
 	}
 }
 
@@ -238,20 +137,78 @@ func TestPublicKeyHandlerWithDateSelectsKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	oldKey, newKey := freshPem(t), freshPem(t)
+	oldStart := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	newStart := time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC)
 	s.SetPublicKeyStore(NewDatedPublicKeyStore(map[string][]DatedKey{
 		testDomain: {
-			{StartsAt: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), PublicKey: "KEY-OLD"},
-			{StartsAt: time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC), PublicKey: "KEY-NEW"},
+			{StartsAt: oldStart, PublicKey: oldKey},
+			{StartsAt: newStart, PublicKey: newKey},
 		},
 	}))
 	minutes := uint32(
 		time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC).Sub(ioDateBase).Minutes())
 	q := url.Values{}
-	q.Set("format", "pkcs")
+	q.Set("format", SpkiFormat)
 	q.Set("date", strconv.FormatUint(uint64(minutes), 10))
 	rr := send(t, HandlerPublicKey(s), testDomain, "/owid/api/v3/public-key", q)
-	if v := decompressAsString(t, rr); v != "KEY-OLD" {
-		t.Errorf("got %q, want KEY-OLD", v)
+	v := publicKeyAnswer(t, rr)
+	if v.PublicKey != oldKey {
+		t.Errorf("got %q, want the old key", v.PublicKey)
+	}
+	if v.ValidFrom == nil || !v.ValidFrom.Equal(oldStart) || v.ValidTo == nil || !v.ValidTo.Equal(newStart) {
+		t.Errorf("the old key should be stated valid from its start to the new key's start, got %+v", v)
+	}
+	// The last key of the schedule has no end.
+	q.Set("date", strconv.FormatUint(uint64(uint32(
+		time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC).Sub(ioDateBase).Minutes())), 10))
+	rr = send(t, HandlerPublicKey(s), testDomain, "/owid/api/v3/public-key", q)
+	v = publicKeyAnswer(t, rr)
+	if v.PublicKey != newKey || v.ValidFrom == nil || !v.ValidFrom.Equal(newStart) || v.ValidTo != nil {
+		t.Errorf("the last key should be stated valid from its start with no end, got %+v", v)
+	}
+}
+
+// freshPem is the public key of a newly made key pair, in PEM form.
+func freshPem(t *testing.T) string {
+	t.Helper()
+	c, err := NewCrypto()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pem, err := c.getSubjectPublicKeyInfo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pem
+}
+
+// publicKeyAnswer reads the JSON body of a public key response.
+func publicKeyAnswer(t *testing.T, rr *httptest.ResponseRecorder) PublicKeyResponse {
+	t.Helper()
+	var v PublicKeyResponse
+	if err := json.Unmarshal([]byte(decompressAsString(t, rr)), &v); err != nil {
+		t.Fatalf("the answer should be the JSON form: %v", err)
+	}
+	return v
+}
+
+// TestPublicKeyHandlerRefusesToAnswerWithAKeyItCannotRead checks that a store
+// holding something that is not a public key is reported as a server error
+// rather than passed to clients as an answer.
+func TestPublicKeyHandlerRefusesToAnswerWithAKeyItCannotRead(t *testing.T) {
+	s, err := getServices()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetPublicKeyStore(NewDatedPublicKeyStore(map[string][]DatedKey{
+		testDomain: {{StartsAt: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), PublicKey: "KEY-OLD"}},
+	}))
+	q := url.Values{}
+	q.Set("format", SpkiFormat)
+	rr := sendRaw(t, HandlerPublicKey(s), testDomain, "/owid/api/v3/public-key", q)
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("a key that cannot be read should be a server error, got %d", rr.Code)
 	}
 }
 
@@ -268,7 +225,7 @@ func TestPublicKeyHandlerDateBeforeOldestReturns404(t *testing.T) {
 		},
 	}))
 	q := url.Values{}
-	q.Set("format", "pkcs")
+	q.Set("format", SpkiFormat)
 	q.Set("date", "1440") // 2020-01-02, before the only key
 	rr := sendRaw(t, HandlerPublicKey(s), testDomain, "/owid/api/v3/public-key", q)
 	if rr.Code != http.StatusNotFound {
@@ -284,7 +241,7 @@ func TestPublicKeyHandlerMalformedDateReturns400(t *testing.T) {
 		t.Fatal(err)
 	}
 	q := url.Values{}
-	q.Set("format", "pkcs")
+	q.Set("format", SpkiFormat)
 	q.Set("date", "notanumber")
 	rr := sendRaw(t, HandlerPublicKey(s), testDomain, "/owid/api/v3/public-key", q)
 	if rr.Code != http.StatusBadRequest {
@@ -411,24 +368,6 @@ func sendRaw(
 	return rr
 }
 
-func decompressAsMap(
-	t *testing.T,
-	rr *httptest.ResponseRecorder) map[string]string {
-	var d map[string]string
-	br, err := gzip.NewReader(rr.Body)
-	if err != nil {
-		t.Errorf("error '%s' decompressing", err)
-		return nil
-	}
-	b, _ := io.ReadAll(br)
-	err = json.Unmarshal(b, &d)
-	if err != nil {
-		t.Errorf("error '%s' unmarshalling response to json", err)
-		return nil
-	}
-	return d
-}
-
 func decompressAsString(
 	t *testing.T,
 	rr *httptest.ResponseRecorder) string {
@@ -444,7 +383,7 @@ func getServices() (*Services, error) {
 	c := NewConfig("appsettings.test.none.json")
 	a := NewAccessSimple([]string{"key1", "key2"})
 	ts := newTestStore()
-	ts.addCreator(testDomain, testOrgName, registerContractURL)
+	ts.addCreator(testDomain, testOrgName, testContractURL)
 	return NewServices(c, ts, a), nil
 }
 
@@ -479,35 +418,6 @@ func TestPublicKeyHandlerAuthorizerDenies(t *testing.T) {
 	}
 }
 
-// TestCreatorHandlerAuthorizerDenies verifies that a configured authorizer
-// can reject a creator request with a 401.
-func TestCreatorHandlerAuthorizerDenies(t *testing.T) {
-	s, err := getServices()
-	if err != nil {
-		t.Fatal(err)
-	}
-	s.SetAuthorizer(func(r *http.Request) error {
-		return fmt.Errorf("a subscription credential is required")
-	})
-	rr := sendRaw(
-		t,
-		HandlerCreator(s),
-		testDomain,
-		"/owid/api/v3/creator",
-		url.Values{})
-	if rr.Code != http.StatusUnauthorized {
-		t.Errorf(
-			"handler returned wrong status code: got %v want %v",
-			rr.Code,
-			http.StatusUnauthorized)
-	}
-	if strings.Contains(
-		rr.Body.String(),
-		"a subscription credential is required") == false {
-		t.Error("response body should contain the authorizer error text")
-	}
-}
-
 // TestPublicKeyHandlerAuthorizerAllows verifies that an authorizer returning
 // nil lets the request through.
 func TestPublicKeyHandlerAuthorizerAllows(t *testing.T) {
@@ -526,34 +436,9 @@ func TestPublicKeyHandlerAuthorizerAllows(t *testing.T) {
 		testDomain,
 		"/owid/api/v3/public-key",
 		q)
-	v := decompressAsString(t, rr)
-	if strings.HasPrefix(v, "-----BEGIN PUBLIC KEY-----") == false {
+	v := publicKeyAnswer(t, rr)
+	if strings.HasPrefix(v.PublicKey, "-----BEGIN PUBLIC KEY-----") == false {
 		t.Error("handler did not return a PEM public key")
-	}
-}
-
-// TestCreatorHandlerAuthorizerAllows verifies that an authorizer returning
-// nil lets the creator request through.
-func TestCreatorHandlerAuthorizerAllows(t *testing.T) {
-	s, err := getServices()
-	if err != nil {
-		t.Fatal(err)
-	}
-	s.SetAuthorizer(func(r *http.Request) error {
-		return nil
-	})
-	rr := send(
-		t,
-		HandlerCreator(s),
-		testDomain,
-		"/owid/api/v3/creator",
-		url.Values{})
-	d := decompressAsMap(t, rr)
-	if d["domain"] != testDomain {
-		t.Errorf(
-			"expected domain '%s', returned '%s'",
-			testDomain,
-			d["domain"])
 	}
 }
 
@@ -649,72 +534,4 @@ func (rt *redirectTransport) RoundTrip(
 	r.URL.Scheme = rt.target.Scheme
 	r.URL.Host = rt.target.Host
 	return http.DefaultTransport.RoundTrip(r)
-}
-
-// TestCreatorHandlerWithDateSelectsKey verifies that a date selects the key
-// that was current then on the creator end point, matching public-key.
-func TestCreatorHandlerWithDateSelectsKey(t *testing.T) {
-	s, err := getServices()
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldCrypto, err := NewCrypto()
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldPem, err := oldCrypto.publicKeyToPemString()
-	if err != nil {
-		t.Fatal(err)
-	}
-	newCrypto, err := NewCrypto()
-	if err != nil {
-		t.Fatal(err)
-	}
-	newPem, err := newCrypto.publicKeyToPemString()
-	if err != nil {
-		t.Fatal(err)
-	}
-	s.SetPublicKeyStore(NewDatedPublicKeyStore(map[string][]DatedKey{
-		testDomain: {
-			{StartsAt: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), PublicKey: oldPem},
-			{StartsAt: time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC), PublicKey: newPem},
-		},
-	}))
-	minutes := uint32(
-		time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC).Sub(ioDateBase).Minutes())
-	q := url.Values{}
-	q.Set("date", strconv.FormatUint(uint64(minutes), 10))
-	rr := send(t, HandlerCreator(s), testDomain, "/owid/api/v3/creator", q)
-	d := decompressAsMap(t, rr)
-	if d["publicKeySPKI"] != oldPem {
-		t.Errorf("got %q, want the older key", d["publicKeySPKI"])
-	}
-}
-
-// TestCreatorHandlerDateBeforeOldestReturns404 verifies that a date before any
-// known key returns 404 on the creator end point.
-func TestCreatorHandlerDateBeforeOldestReturns404(t *testing.T) {
-	s, err := getServices()
-	if err != nil {
-		t.Fatal(err)
-	}
-	cry, err := NewCrypto()
-	if err != nil {
-		t.Fatal(err)
-	}
-	pem, err := cry.publicKeyToPemString()
-	if err != nil {
-		t.Fatal(err)
-	}
-	s.SetPublicKeyStore(NewDatedPublicKeyStore(map[string][]DatedKey{
-		testDomain: {
-			{StartsAt: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), PublicKey: pem},
-		},
-	}))
-	q := url.Values{}
-	q.Set("date", "1440") // 2020-01-02, before the only key
-	rr := sendRaw(t, HandlerCreator(s), testDomain, "/owid/api/v3/creator", q)
-	if rr.Code != http.StatusNotFound {
-		t.Errorf("got %v, want %v", rr.Code, http.StatusNotFound)
-	}
 }

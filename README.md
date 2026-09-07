@@ -8,17 +8,16 @@ Open Web Id (OWID) is a small cryptographically signed identifier. Each OWID
 records the domain of the party that created it, the date and time of
 creation to the nearest minute and a byte array payload. The signature is
 created with ECDSA using the P-256 curve over a SHA-256 hash of the other
-fields, so any change to the OWID after signing can be detected. OWIDs can
-also be chained together so that one OWID is bound to others at the moment of
-signing. Read the [OWID](https://github.com/SWAN-community/owid) project to
-learn more about the concepts behind this implementation.
+fields, so any change to the OWID after signing can be detected. Read the
+[OWID](https://github.com/SWAN-community/owid) project to learn more about
+the concepts behind this implementation.
 
 ## Scope of this implementation
 
 This repository contains the full Go implementation of OWID. It can create,
-sign and verify OWIDs, serve the HTTP endpoints used to register creators,
-publish public keys and verify OWIDs, and persist creator key pairs using
-AWS, Azure, GCP or local file storage backends.
+sign and verify OWIDs, serve the HTTP end points that publish public keys
+and verify OWIDs, and persist creator key pairs using AWS, Azure, GCP or
+local file storage backends.
 
 ## Payload size and application limits
 
@@ -131,7 +130,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	valid, err := n.VerifyWithCrypto(crypto, nil)
+	valid, err := n.VerifyWithCrypto(crypto)
 	if err != nil {
 		panic(err)
 	}
@@ -153,13 +152,42 @@ valid, err := o.VerifyWithPublicKey(publicKeyPem)
 valid, err = o.Verify("https")
 ```
 
+Keys fetched from a creator are held in memory. The request names the minute
+the OWID was created, so a creator that rotates its key answers with the key in
+force then, and the answer is the JSON form, which carries the moments the key
+is valid from and to as well as the key. A creator built on this package states
+both, so the whole span is held from one answer and an OWID dated anywhere in
+it is verified without a request whatever the clock drift. An answer that
+states the start alone is held from the start up to fifteen minutes behind now,
+because no later key can have started before then. An answer that states no
+span comes from a creator with one key and no schedule, and is held against the
+minute asked about and every minute between two such answers for the same key,
+but never for a minute within fifteen minutes of now, because a creator whose
+clock differs from this one's may have read that minute as its present rather
+than as the minute named. The PEM alone as text is not a valid answer and is
+refused. A signature that does not verify under the key selected, where the
+OWID is dated within fifteen minutes of an edge of the span the creator stated
+for that key, is checked against the key for the minute just beyond that edge
+before it is reported as not matching, because a creator's signing machines may
+not agree with its schedule to the minute. Where the creator's own statement
+puts the OWID's date outside the span of the key it answered with and nothing
+verifies, the key is reported as unavailable rather than the signature as not
+matching, because a key that was not in force proves nothing about the
+identifier. Live identifiers from a creator that states its spans cost one
+request per key, and older ones cost none. At most 1024 keys are held across
+every creator before the cache is emptied and filled again, and `ClearKeyCache`
+empties it on demand, which is how a long running process drops a key it has
+learned it should no longer trust. Callers arriving together for one key share
+one request, and a request that fails is not held.
+
 The false that `Verify` returns alongside an error does not mean the signature
 is wrong, because an outage produces the same pair as a forgery does. Where
 the difference matters, and it matters anywhere the answer decides whether to
 distrust an identifier, ask for the status instead. A key that could not be
-fetched is `KeyUnavailable`, one that arrived in a form this package cannot
-read is `InvalidKey`, and only `SignatureInvalid` means the identifier should
-be distrusted.
+fetched is `KeyUnavailable`, as is one the creator says was not in force at the
+OWID's date, one that arrived in a form this package cannot read is
+`InvalidKey`, and only `SignatureInvalid` means the identifier should be
+distrusted.
 
 ```go
 switch o.SignatureStatusFromDomain("https") {
@@ -170,17 +198,6 @@ case owid.SignatureInvalid:
 default:
 	// The question could not be answered, so nothing is known either way.
 }
-```
-
-OWIDs can be chained by passing other OWIDs to the create operation. The same
-OWIDs must be provided again for verification to succeed.
-
-```go
-root, _ := creator.Create([]byte("root"))
-child, _ := creator.Create([]byte("child"), root)
-
-// True only when the same others are supplied in the same order.
-valid, _ := child.VerifyWithCrypto(crypto, []*owid.OWID{root})
 ```
 
 ## Reading an OWID
@@ -340,12 +357,10 @@ registered for versions v1, v2 and v3.
 
 | Endpoint | Description |
 |----------|-------------|
-| /owid/register | HTML form to register the host domain as an OWID creator |
-| /owid/api/v3/creator | Returns the name, domain and public keys of the creator for the host domain |
-| /owid/api/v3/public-key | Returns the creator's public key in PEM form, with the `format` parameter set to `spki` or `pkcs`. An optional `date` parameter (minutes since 2020-01-01 UTC, the OWID Date encoding) returns the key that was current at that date, or `404` if it predates the oldest key |
+| /owid/api/v3/public-key | Returns the creator's public key as a JSON object carrying the key and the moments it is valid from and to, The `format` parameter names the encoding of the key. The only value defined is `spki`, which a request without the parameter receives, and any other value is answered `400`. An optional `date` parameter (minutes since 2020-01-01 UTC, the OWID Date encoding) returns the key that was current at that date, or `404` if it predates the oldest key |
 | /owid/api/v3/verify | Verifies the OWID in the `owid` parameter and returns JSON in the form `{"valid":true}` |
 
-The same creator, public-key and verify paths are also registered under
+The same public-key and verify paths are also registered under
 `/owid/api/v1/` and `/owid/api/v2/` for backwards compatibility.
 
 ### Historical keys
@@ -362,13 +377,27 @@ key's start is the schedule position, not the moment its material was
 generated, because a creator may generate many periods in one run and a key
 that has not started has signed nothing.
 
+The public key end point answers with a `PublicKeyResponse` as JSON, being
+the key as `publicKey`, the encoding it is in as `format`, and `validFrom` and
+`validTo`, the UTC moments the key came into force and the next key starts.
+The one format defined is `spki`, a Subject Public Key Info PEM. It is what a
+request without a `format` receives, and a request for any other value is
+answered 400 rather than in an encoding the caller did not ask for.
+`DatedPublicKeyStore` knows both moments, and a store of your own states them
+by implementing `PublicKeyPeriodStore` as well. `validTo` is null for the last
+key in the schedule and both are null for a single key with no schedule. The
+answer is
+checked with `ValidatePublicKeyResponse` before it is sent, so a key that
+cannot be read or a schedule that contradicts itself is a server error rather
+than a bad answer. The PEM alone as text is not a valid answer, and a client
+that receives it reports the key as one it cannot read.
+
 ### Requiring authentication (optional)
 
-The OWID specification leaves authentication to the implementor: a creator
-MAY require a credential on the public-key and creator endpoints, for
-example to tie key access to a subscription. Supply an authorizer via
-`Services.SetAuthorizer`; without one the endpoints stay open. The verify
-and register endpoints are not affected.
+The OWID specification leaves authentication to the implementor. A creator
+MAY require a credential on the public-key end point, for example to tie key
+access to a subscription. Supply an authorizer via `Services.SetAuthorizer`.
+Without one the end point stays open. The verify end point is not affected.
 
 ```go
 services.SetAuthorizer(func(r *http.Request) error {
@@ -379,9 +408,9 @@ services.SetAuthorizer(func(r *http.Request) error {
 })
 ```
 
-When the authorizer returns an error the endpoint responds with status 401
+When the authorizer returns an error the end point responds with status 401
 and the error text as the body. The 51Degrees cloud, for example, requires
-a resource key or license key on these endpoints and meters each call.
+a resource key or license key on this end point and meters each call.
 
 ## Testing
 
@@ -389,8 +418,8 @@ a resource key or license key on these endpoints and meters each call.
 go test ./...
 ```
 
-The tests cover creation, signing, verification, serialization, chaining, the
-node tree and the HTTP handlers. The suite also verifies externally signed
+The tests cover creation, signing, verification, serialization, the node
+tree and the HTTP handlers. The suite also verifies externally signed
 fixtures that prove the wire format and signatures are portable. Every parse
 and signature status is either produced by a test or named as unreachable
 with the reason, and a test walks both vocabularies so that a status added

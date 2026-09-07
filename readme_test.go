@@ -59,50 +59,12 @@ func TestReadmeCreateAndVerify(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	valid, err := back.VerifyWithCrypto(crypto, nil)
+	valid, err := back.VerifyWithCrypto(crypto)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !valid {
 		t.Error("the round tripped OWID should verify with the same key")
-	}
-}
-
-// TestReadmeChaining runs the chaining example from the README.
-func TestReadmeChaining(t *testing.T) {
-	crypto, err := NewCrypto()
-	if err != nil {
-		t.Fatal(err)
-	}
-	creator, err := NewCreator("example.com", crypto)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	root, err := creator.Create([]byte("root"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	child, err := creator.Create([]byte("child"), root)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	valid, err := child.VerifyWithCrypto(crypto, []*OWID{root})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !valid {
-		t.Error("the child should verify with the root as the other")
-	}
-
-	// And fails without it, which is what makes the chain mean anything.
-	alone, err := child.VerifyWithCrypto(crypto, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if alone {
-		t.Error("the child should not verify without the root")
 	}
 }
 

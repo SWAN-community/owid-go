@@ -25,7 +25,7 @@ import (
 )
 
 func TestOWIDVerify(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
+	c, err := newTestCreator(testDomain, testOrgName, testContractURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestOWIDVerify(t *testing.T) {
 }
 
 func TestOWIDBase64(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
+	c, err := newTestCreator(testDomain, testOrgName, testContractURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestOWIDBase64(t *testing.T) {
 }
 
 func TestOWIDString(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
+	c, err := newTestCreator(testDomain, testOrgName, testContractURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestOWIDString(t *testing.T) {
 }
 
 func TestOWIDBase64CorruptShort(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
+	c, err := newTestCreator(testDomain, testOrgName, testContractURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestOWIDBase64CorruptShort(t *testing.T) {
 }
 
 func TestOWIDBase64CorruptMiss(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
+	c, err := newTestCreator(testDomain, testOrgName, testContractURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestOWIDBase64CorruptMiss(t *testing.T) {
 }
 
 func TestOWIDByteArrayCorruptReplace(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
+	c, err := newTestCreator(testDomain, testOrgName, testContractURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestOWIDByteArrayCorruptReplace(t *testing.T) {
 // TestOWIDModifiedDomain verifies that changing the domain after signing
 // causes verification to fail.
 func TestOWIDModifiedDomain(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
+	c, err := newTestCreator(testDomain, testOrgName, testContractURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,82 +168,10 @@ func TestOWIDModifiedDomain(t *testing.T) {
 	}
 }
 
-// TestOWIDChain verifies that an OWID signed with other OWIDs passes
-// verification when the same others are provided, and fails when they are
-// omitted, reordered or different.
-func TestOWIDChain(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	first, err := c.CreateOWIDandSign([]byte("first"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := c.CreateOWIDandSign([]byte("second"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	o, err := c.CreateOWIDandSign([]byte(testPayload), first, second)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Verify with the same others in the same order.
-	v, err := c.Verify(o, first, second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v != true {
-		t.Fatal(fmt.Errorf("chained OWID did not pass verification"))
-	}
-	v, err = o.VerifyWithPublicKey(c.publicKey, first, second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v != true {
-		t.Fatal(fmt.Errorf("chained OWID did not pass verification with " +
-			"public key"))
-	}
-
-	// Verify fails when the others are omitted.
-	v, err = c.Verify(o)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v != false {
-		t.Fatal(fmt.Errorf("chained OWID should not verify without others"))
-	}
-
-	// Verify fails when the others are in a different order.
-	v, err = c.Verify(o, second, first)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v != false {
-		t.Fatal(fmt.Errorf("chained OWID should not verify with others in " +
-			"a different order"))
-	}
-
-	// Verify fails when a different other is provided.
-	other, err := c.CreateOWIDandSign([]byte("other"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	v, err = c.Verify(o, first, other)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v != false {
-		t.Fatal(fmt.Errorf("chained OWID should not verify with different " +
-			"others"))
-	}
-}
-
 // TestOWIDQueryFormRoundTrip verifies that an OWID added to a query string
 // with ToQuery can be read back with FromForm.
 func TestOWIDQueryFormRoundTrip(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
+	c, err := newTestCreator(testDomain, testOrgName, testContractURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +201,7 @@ func TestOWIDQueryFormRoundTrip(t *testing.T) {
 // format can be read with FromBuffer. The version 1 date resolution is one
 // day.
 func TestOWIDVersion1(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
+	c, err := newTestCreator(testDomain, testOrgName, testContractURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +224,7 @@ func TestOWIDVersion1(t *testing.T) {
 // format can be read with FromBuffer. The version 2 date resolution is one
 // minute.
 func TestOWIDVersion2(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
+	c, err := newTestCreator(testDomain, testOrgName, testContractURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +248,7 @@ func TestOWIDVersion2(t *testing.T) {
 // TestOWIDVersionUnsupported verifies that a buffer with an unsupported
 // version byte results in an error from FromBuffer.
 func TestOWIDVersionUnsupported(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
+	c, err := newTestCreator(testDomain, testOrgName, testContractURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -389,7 +317,7 @@ func newOWID(creator *Creator) (*OWID, error) {
 	if err != nil {
 		return nil, err
 	}
-	o.sign(c, nil)
+	o.sign(c)
 	return o, nil
 }
 

@@ -63,7 +63,7 @@ func TestURLNamesTheVersionTheIdentifierCarries(t *testing.T) {
 		t.Fatalf("the crafted identifier should be version 2, got %d", o.Version())
 	}
 	got := o.publicKeyURL("https")
-	want := "https://example.com/owid/api/v2/public-key?date=3510720&format=pkcs"
+	want := "https://example.com/owid/api/v2/public-key?date=3510720&format=spki"
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}

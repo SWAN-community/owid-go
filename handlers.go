@@ -19,17 +19,14 @@ package owid
 import (
 	"compress/gzip"
 	"fmt"
-	"html/template"
 	"net/http"
 )
 
 // AddHandlers to the http default mux for shared web state.
 func AddHandlers(s *Services) {
-	http.HandleFunc("/owid/register", HandlerRegister(s))
 	for i := owidVersion1; i <= owidVersion3; i++ {
 		b := fmt.Sprintf("/owid/api/v%d/", i)
 		http.HandleFunc(b+"public-key", HandlerPublicKey(s))
-		http.HandleFunc(b+"creator", HandlerCreator(s))
 		http.HandleFunc(b+"verify", HandlerVerify(s))
 		if s.config.Debug {
 			http.HandleFunc(b+"owids", HandlerOwidsJSON(s))
@@ -45,18 +42,6 @@ func returnAPIError(
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	http.Error(w, err.Error(), code)
-	if s.config.Debug {
-		println(err.Error())
-	}
-}
-
-func returnServerError(s *Services, w http.ResponseWriter, err error) {
-	w.Header().Set("Cache-Control", "no-cache")
-	if s.config.Debug {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	} else {
-		http.Error(w, "", http.StatusInternalServerError)
-	}
 	if s.config.Debug {
 		println(err.Error())
 	}
@@ -79,19 +64,6 @@ func getWriter(w http.ResponseWriter, c string) *gzip.Writer {
 	w.Header().Set("Content-Encoding", "gzip")
 	w.Header().Set("Content-Type", c)
 	return g
-}
-
-func sendHTMLTemplate(s *Services,
-	w http.ResponseWriter,
-	t *template.Template,
-	m interface{}) {
-	w.Header().Set("Cache-Control", "no-cache")
-	g := getWriter(w, "text/html; charset=utf-8")
-	defer g.Close()
-	err := t.Execute(g, m)
-	if err != nil {
-		returnServerError(s, w, err)
-	}
 }
 
 func sendResponse(

@@ -26,7 +26,7 @@ import (
 // TestCreatorCreateOWID verifies that a created OWID is signed and contains the
 // payload, the current version and the domain of the creator.
 func TestCreatorCreateOWID(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
+	c, err := newTestCreator(testDomain, testOrgName, testContractURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestCreatorCreateOWID(t *testing.T) {
 // TestCreatorSign verifies that signing an OWID sets the signature to the
 // expected length.
 func TestCreatorSign(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
+	c, err := newTestCreator(testDomain, testOrgName, testContractURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestCreatorSign(t *testing.T) {
 // TestCreatorCreateOWIDandSign verifies the combined create and sign method
 // produces an OWID that passes verification by the same creator.
 func TestCreatorCreateOWIDandSign(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
+	c, err := newTestCreator(testDomain, testOrgName, testContractURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestCreatorCreateOWIDandSign(t *testing.T) {
 // TestCreatorVerify verifies the creator confirms an OWID signed with its
 // own keys.
 func TestCreatorVerify(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
+	c, err := newTestCreator(testDomain, testOrgName, testContractURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,11 +124,11 @@ func TestCreatorVerify(t *testing.T) {
 // not pass verification with the keys of another creator for the same
 // domain.
 func TestCreatorVerifyWrongKey(t *testing.T) {
-	a, err := newTestCreator(testDomain, testOrgName, registerContractURL)
+	a, err := newTestCreator(testDomain, testOrgName, testContractURL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := newTestCreator(testDomain, testOrgName, registerContractURL)
+	b, err := newTestCreator(testDomain, testOrgName, testContractURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +148,7 @@ func TestCreatorVerifyWrongKey(t *testing.T) {
 // TestCreatorEmptyPayload verifies that an OWID with a nil payload can be
 // signed, serialized and verified.
 func TestCreatorEmptyPayload(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
+	c, err := newTestCreator(testDomain, testOrgName, testContractURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +187,7 @@ func TestCreatorEmptyPayload(t *testing.T) {
 // TestCreatorLargePayload verifies that an OWID with a 10,000 byte random
 // payload can be signed, serialized and verified.
 func TestCreatorLargePayload(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
+	c, err := newTestCreator(testDomain, testOrgName, testContractURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +231,7 @@ func TestCreatorLargePayload(t *testing.T) {
 // TestCreatorBatch verifies that 10 distinct OWIDs can be created and each
 // passes verification.
 func TestCreatorBatch(t *testing.T) {
-	c, err := newTestCreator(testDomain, testOrgName, registerContractURL)
+	c, err := newTestCreator(testDomain, testOrgName, testContractURL)
 	if err != nil {
 		t.Fatal(err)
 	}
