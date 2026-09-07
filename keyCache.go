@@ -35,6 +35,21 @@ const keyFetchTimeout = 10 * time.Second
 // as the process runs.
 const maximumCachedKeys = 1024
 
+// clockDriftAllowanceMinutes is how far a creator's clock may run ahead of or
+// behind this one's. A minute closer to now than this, or later, is asked
+// about rather than served from the cache, and is not held.
+//
+// A creator reads a date later than its own now as now, and answers with the
+// key in force now. Within this window this process cannot tell whether the
+// creator read the minute as its past or as its present, so the answer says
+// nothing certain about the minute. An identifier signed just after a
+// rotation by a creator whose clock runs ahead would otherwise be served the
+// old key from a span confirmed up to now, and would read as not matching
+// until this clock caught up. Identifiers dated within the window are asked
+// about once per minute per creator, as they always were, and every older
+// identifier is served from the spans.
+const clockDriftAllowanceMinutes = 15
+
 // heldKey is one key a creator has answered with, and the span of minutes
 // the creator has confirmed it was in force for.
 //
@@ -76,7 +91,10 @@ var keyCache = struct {
 // cachedKey returns the key held for the URL, if the creator has confirmed
 // one for the minute the URL names.
 func cachedKey(url string) (string, bool) {
-	endPoint, minute := endPointAndMinute(url)
+	endPoint, minute, cacheable := endPointAndMinute(url)
+	if !cacheable {
+		return "", false
+	}
 	keyCache.Lock()
 	defer keyCache.Unlock()
 	for _, key := range keyCache.held[endPoint] {
@@ -94,7 +112,10 @@ func cachedKey(url string) (string, bool) {
 // full, because the cache must not grow on the input of whoever presents the
 // identifiers.
 func rememberKey(url string, pem string) {
-	endPoint, minute := endPointAndMinute(url)
+	endPoint, minute, cacheable := endPointAndMinute(url)
+	if !cacheable {
+		return
+	}
 	keyCache.Lock()
 	defer keyCache.Unlock()
 	keys := keyCache.held[endPoint]
@@ -146,32 +167,29 @@ func widen(keys []*heldKey, key *heldKey, minute uint32) bool {
 
 // endPointAndMinute splits a key URL into the end point being asked, which
 // is the URL without its query, and the minute the cache reads it as asking
-// about.
+// about. The last result is false where the cache must not be used for the
+// request.
 //
-// The minute is the date parameter where the URL carries one, and otherwise
-// now, because a creator answers a request without a date with the key in
-// force now. A date later than now is read as now as well, because that is
-// how a creator reads it. A schedule is published ahead of time and a key
-// that has not started has signed nothing, so the creator answers a future
-// date with the key in force now, and that answer must be held against now
-// rather than against a minute the creator has not spoken for. Held against
-// the future minute, the key would still be served for that minute after the
-// creator had rotated, and a genuine identifier signed then would read as not
-// matching.
-func endPointAndMinute(url string) (string, uint32) {
+// The minute is the date parameter where the URL carries one and it is at
+// least clockDriftAllowanceMinutes behind now. A request without a date asks
+// for the key in force now, and one dated within the allowance, or later, may
+// be read by the creator as its present rather than as the minute named, so
+// neither is served from the cache nor held in it.
+func endPointAndMinute(url string) (string, uint32, bool) {
 	now := minutesSinceBase(time.Now().UTC())
 	endPoint, query, _ := strings.Cut(url, "?")
 	for _, pair := range strings.Split(query, "&") {
 		if strings.HasPrefix(pair, "date=") {
 			minute, err := strconv.ParseUint(
 				strings.TrimPrefix(pair, "date="), 10, 32)
-			if err != nil || uint32(minute) > now {
-				return endPoint, now
+			if err != nil || now < clockDriftAllowanceMinutes ||
+				uint32(minute) > now-clockDriftAllowanceMinutes {
+				return endPoint, 0, false
 			}
-			return endPoint, uint32(minute)
+			return endPoint, uint32(minute), true
 		}
 	}
-	return endPoint, now
+	return endPoint, 0, false
 }
 
 // cachedKeyCount is how many keys the cache holds, for the tests.

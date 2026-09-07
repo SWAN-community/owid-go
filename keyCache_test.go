@@ -173,23 +173,32 @@ func TestAKeyIsNeverServedForAMinuteOutsideItsConfirmedSpan(t *testing.T) {
 	}
 }
 
-// TestAFutureDateIsHeldAgainstNow checks that a date later than now is held
-// against now, because a creator answers a future date with the key in force
-// now and a key held against a minute the creator has not spoken for would be
-// served for that minute after the creator had rotated. Two future dates
-// therefore share one request.
-func TestAFutureDateIsHeldAgainstNow(t *testing.T) {
+// TestAMinuteWithinTheDriftAllowanceIsNotHeld checks that a minute within the
+// clock drift allowance of now, or later, is asked about every time and never
+// held, because a creator whose clock differs from this one's may have read it
+// as its present rather than as the minute named, and that a minute beyond
+// the allowance is held as usual. Live identifiers therefore cost one request
+// per minute per creator, as they always did, and older ones cost none.
+func TestAMinuteWithinTheDriftAllowanceIsNotHeld(t *testing.T) {
 	k := newKeyServer(t)
 	useServer(t, k.server.URL)
 	started := minutesSinceBase(time.Now().UTC())
 	now := time.Now().UTC()
+	recent := now.Add(-time.Minute)
+	pemAt(t, recent)
+	pemAt(t, recent)
 	pemAt(t, now.Add(7*24*time.Hour))
-	pemAt(t, now.Add(14*24*time.Hour))
+	old := now.Add(-time.Duration(clockDriftAllowanceMinutes+1) * time.Minute)
+	pemAt(t, old)
+	pemAt(t, old)
 	if minutesSinceBase(time.Now().UTC()) != started {
 		t.Skip("the minute changed during the test, so the calls were not all about the same now")
 	}
-	if len(k.dates) != 1 {
-		t.Fatalf("two future dates are both now, so now should be asked about once, got %d requests", len(k.dates))
+	if len(k.dates) != 4 {
+		t.Fatalf("the recent minute should be asked about twice, the future minute once, and the old minute once with the second call held, got %d requests", len(k.dates))
+	}
+	if cachedKeyCount() != 1 {
+		t.Fatalf("only the old minute's key should be held, got %d", cachedKeyCount())
 	}
 }
 
