@@ -277,18 +277,33 @@ func TestAKeyAnsweredWithItsSpanIsHeldForTheWholeSpan(t *testing.T) {
 // minutes, does not apply to a span the creator stated itself, so live
 // identifiers cost one request per key rather than one per minute.
 func TestARecentMinuteIsServedWhereTheCreatorStatedTheSpan(t *testing.T) {
-	k := newKeyServer(t)
-	useServer(t, k.server.URL)
-	now := time.Now().UTC()
-	current := keyInForce(k.schedule, now)
-	if current == nil || nextStart(k.schedule, current) == nil {
-		t.Skip("the fixture schedule has no key after the one in force now, so its span has no end")
-	}
+	// One key covering the day either side of now, in whole minutes, so the
+	// span the creator states holds every minute asked about whenever the
+	// test runs.
+	now := dateFromMinutes(minutesSinceBase(time.Now().UTC()))
+	day := 24 * time.Hour
+	from := now.Add(-day)
+	to := now.Add(day)
+	pem := fixtureSchedule(t)[0].pem
+	requests := 0
+	s := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			requests++
+			m, err := strconv.ParseUint(r.URL.Query().Get("date"), 10, 32)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			asked := ioDateBase.Add(time.Duration(m) * time.Minute)
+			writeKeyAnswer(t, w, true, pem, from, &to, asked)
+		}))
+	t.Cleanup(s.Close)
+	useServer(t, s.URL)
 	pemAt(t, now.Add(-time.Minute))
 	pemAt(t, now)
 	pemAt(t, now.Add(-10*time.Minute))
-	if len(k.dates) != 1 {
-		t.Fatalf("the current key should be served for every recent minute from one answer, got %d requests", len(k.dates))
+	if requests != 1 {
+		t.Fatalf("the current key should be served for every recent minute from one answer, got %d requests", requests)
 	}
 }
 
